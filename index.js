@@ -71,6 +71,7 @@ const commands = [
 
 ].map(c => c.toJSON());
 
+// ===== REGISTER COMMANDS =====
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 async function registerCommands() {
@@ -86,10 +87,37 @@ client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ===== MEMBER JOIN =====
+// ===== MEMBER JOIN ONBOARDING =====
 client.on('guildMemberAdd', async member => {
-  const role = member.guild.roles.cache.find(r => r.name === 'Member');
-  if (role) await member.roles.add(role);
+  try {
+    const role = member.guild.roles.cache.find(r => r.name === 'Member');
+    if (role) await member.roles.add(role);
+
+    const welcomeChannel = member.guild.channels.cache.find(
+      c => c.name === 'welcome'
+    );
+
+    if (welcomeChannel) {
+      welcomeChannel.send(
+        `Welcome ${member} 👋  
+If you are a creator, use **/apply** to request Creator access.`
+      );
+    }
+
+    await member.send(
+      `Welcome to HyperChat.
+
+To onboard as a creator:
+
+1. Run /apply in the server
+2. Submit your channel link
+3. Our team will review
+4. You will receive Creator role once approved`
+    );
+
+  } catch (err) {
+    console.error('Join handling failed:', err.message);
+  }
 });
 
 // ===== COMMAND HANDLER =====
@@ -98,6 +126,7 @@ client.on('interactionCreate', async interaction => {
 
   // ===== APPLY =====
   if (interaction.commandName === 'apply') {
+
     const details = interaction.options.getString('details');
 
     await supabase.from('creator_applications').insert({
@@ -107,7 +136,7 @@ client.on('interactionCreate', async interaction => {
     });
 
     await interaction.reply({
-      content: 'Application submitted.',
+      content: 'Application submitted. Staff will review shortly.',
       ephemeral: true
     });
   }
@@ -122,9 +151,25 @@ client.on('interactionCreate', async interaction => {
       r => r.name === 'Creator'
     );
 
-    if (creatorRole) await member.roles.add(creatorRole);
+    if (!creatorRole) {
+      return interaction.reply({
+        content: 'Creator role not found.',
+        ephemeral: true
+      });
+    }
 
-    // Update DB
+    try {
+      await member.roles.add(creatorRole);
+    } catch (err) {
+      console.error('Role assignment failed:', err);
+
+      return interaction.reply({
+        content:
+          'Cannot assign role. Check bot permissions and role hierarchy.',
+        ephemeral: true
+      });
+    }
+
     await supabase
       .from('creator_applications')
       .update({
@@ -134,12 +179,13 @@ client.on('interactionCreate', async interaction => {
       })
       .eq('discord_id', user.id);
 
-    // DM user
-    await user.send(
-      `Your HyperChat Creator application has been approved.
+    try {
+      await user.send(
+        `Your HyperChat Creator application has been approved.
 
-You now have Creator access. Follow setup instructions in the server.`
-    );
+You now have Creator access.`
+      );
+    } catch {}
 
     await interaction.reply(`Approved ${user.tag}`);
   }
@@ -160,13 +206,15 @@ You now have Creator access. Follow setup instructions in the server.`
       })
       .eq('discord_id', user.id);
 
-    await user.send(
-      `Your HyperChat Creator application was not approved.
+    try {
+      await user.send(
+        `Your HyperChat Creator application was not approved.
 
 Reason: ${reason}
 
-You may reapply in the future.`
-    );
+You may reapply later.`
+      );
+    } catch {}
 
     await interaction.reply(`Rejected ${user.tag}`);
   }
@@ -175,6 +223,15 @@ You may reapply in the future.`
   if (interaction.commandName === 'ping') {
     await interaction.reply('Pong');
   }
+});
+
+// ===== GLOBAL ERROR HANDLER =====
+client.on('error', err => {
+  console.error('Client error:', err);
+});
+
+process.on('unhandledRejection', err => {
+  console.error('Unhandled rejection:', err);
 });
 
 // ===== START =====
