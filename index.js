@@ -92,7 +92,7 @@ client.on('interactionCreate', async interaction => {
       });
 
     // ===== TEAM ROLE =====
-    const teamRole = interaction.guild.roles.cache.get('532448115861749770');
+   const teamRole = interaction.guild.roles.cache.get('1476926926378500279');
 
     // ===== BUTTONS =====
     const row = new ActionRowBuilder().addComponents(
