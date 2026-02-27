@@ -13,7 +13,6 @@ const {
 
 const { createClient } = require('@supabase/supabase-js');
 
-// ================= ENV =================
 const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
@@ -29,15 +28,13 @@ const REVIEWER_IDS = [
 
 const CREATOR_ROLE_NAME = 'Creator';
 const PENDING_ROLE_NAME = 'Creator-Pending';
-const TICKET_CATEGORY_NAME = 'Support Tickets';
+const ONBOARD_CATEGORY = 'Onboarding Sessions';
 
-// ================= SUPABASE =================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ================= CLIENT =================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -46,7 +43,7 @@ const client = new Client({
 });
 
 // =================================================
-// REGISTER /apply
+// COMMAND
 // =================================================
 const commands = [
   new SlashCommandBuilder()
@@ -68,49 +65,8 @@ async function registerCommands() {
   );
 }
 
-// =================================================
-// READY
-// =================================================
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
-});
-
-// =================================================
-// WELCOME
-// =================================================
-client.on('guildMemberAdd', async member => {
-
-  const channel = member.guild.channels.cache.find(
-    c => c.name === 'welcome'
-  );
-  if (!channel) return;
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('start_apply')
-      .setLabel('Apply as Creator')
-      .setStyle(ButtonStyle.Primary),
-
-    new ButtonBuilder()
-      .setLabel('Website')
-      .setStyle(ButtonStyle.Link)
-      .setURL('https://www.hyperchat.site/'),
-
-    new ButtonBuilder()
-      .setCustomId('support_ticket')
-      .setLabel('Get Support')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  await channel.send({
-    content:
-`👋 Welcome ${member}!
-
-HyperChat helps creators turn live streams into interactive experiences.
-
-Choose an option below 👇`,
-    components: [row]
-  });
 });
 
 // =================================================
@@ -118,127 +74,11 @@ Choose an option below 👇`,
 // =================================================
 client.on('interactionCreate', async interaction => {
 
-  // ================= BUTTONS =================
+  // =================================================
+  // BUTTONS
+  // =================================================
   if (interaction.isButton()) {
 
-    // APPLY BUTTON
-    if (interaction.customId === 'start_apply') {
-      return interaction.reply({
-        content: 'Use `/apply` with your channel link + intro.',
-        flags: 64
-      });
-    }
-
-    // ================= SUPPORT TICKET =================
-    if (interaction.customId === 'support_ticket') {
-
-      await interaction.deferReply({ flags: 64 });
-
-      const guild = interaction.guild;
-      const user = interaction.user;
-
-      let category = guild.channels.cache.find(
-        c =>
-          c.name === TICKET_CATEGORY_NAME &&
-          c.type === ChannelType.GuildCategory
-      );
-
-      if (!category) {
-        category = await guild.channels.create({
-          name: TICKET_CATEGORY_NAME,
-          type: ChannelType.GuildCategory
-        });
-      }
-
-      const overwrites = [
-        { id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel] },
-
-        { id: user.id,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages,
-            PermissionsBitField.Flags.ReadMessageHistory
-          ]},
-
-        { id: guild.members.me.id,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages,
-            PermissionsBitField.Flags.ManageChannels,
-            PermissionsBitField.Flags.ReadMessageHistory
-          ]}
-      ];
-
-      const ticket = await guild.channels.create({
-        name: `support-${user.username}`,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        permissionOverwrites: overwrites
-      });
-
-      const closeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('close_ticket')
-          .setLabel('Close Ticket')
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await ticket.send({
-        content: `${user} Describe your issue.`,
-        components: [closeRow]
-      });
-
-      return interaction.editReply({
-        content: `Ticket created: ${ticket}`
-      });
-    }
-
-    // CLOSE TICKET
-    if (interaction.customId === 'close_ticket') {
-      await interaction.reply({ content: 'Closing...', flags: 64 });
-      setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
-      return;
-    }
-
-    // =================================================
-    // ACTIVATION BUTTON
-    // =================================================
-    if (interaction.customId === 'activate_creator') {
-
-      await interaction.deferReply({ flags: 64 });
-
-      const guild = interaction.guild;
-      const member =
-        await guild.members.fetch(interaction.user.id);
-
-      const creatorRole =
-        guild.roles.cache.find(r => r.name === CREATOR_ROLE_NAME);
-
-      const pendingRole =
-        guild.roles.cache.find(r => r.name === PENDING_ROLE_NAME);
-
-      if (!creatorRole || !pendingRole)
-        return interaction.editReply({
-          content: 'Required roles missing.'
-        });
-
-      await member.roles.remove(pendingRole).catch(() => {});
-      await member.roles.add(creatorRole).catch(() => {});
-
-      await supabase
-        .from('creator_applications')
-        .update({ activation_completed: true })
-        .eq('discord_id', interaction.user.id);
-
-      return interaction.editReply({
-        content: '✅ Creator access activated!'
-      });
-    }
-
-    // =================================================
-    // APPLICATION ACTIONS
-    // =================================================
     const [action, id] = interaction.customId.split('_');
 
     if (!['claim', 'approve', 'reject'].includes(action)) return;
@@ -253,7 +93,7 @@ client.on('interactionCreate', async interaction => {
 
     if (!app) return;
 
-    // CLAIM
+    // ================= CLAIM =================
     if (action === 'claim') {
 
       if (app.assigned_to) return;
@@ -272,14 +112,15 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // APPROVE → SEND WIZARD
+    // ================= APPROVE =================
     if (action === 'approve') {
 
+      const guild = interaction.guild;
       const member =
-        await interaction.guild.members.fetch(app.discord_id);
+        await guild.members.fetch(app.discord_id);
 
       const pendingRole =
-        interaction.guild.roles.cache.find(
+        guild.roles.cache.find(
           r => r.name === PENDING_ROLE_NAME
         );
 
@@ -291,43 +132,108 @@ client.on('interactionCreate', async interaction => {
 
       await member.roles.add(pendingRole).catch(() => {});
 
-      await supabase
-        .from('creator_applications')
-        .update({ status: 'approved_pending' })
-        .eq('id', id);
-
-      // 🔥 SEND SETUP WIZARD DM
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('activate_creator')
-          .setLabel('I Completed Setup')
-          .setStyle(ButtonStyle.Success)
+      // 🔥 FIND OR CREATE CATEGORY
+      let category = guild.channels.cache.find(
+        c =>
+          c.name === ONBOARD_CATEGORY &&
+          c.type === ChannelType.GuildCategory
       );
 
-      try {
-        await member.send({
-          content:
-`✅ Your application was approved!
-
-Complete these steps:
-
-1) Connect your streaming platform
-2) Configure alerts
-3) Test donation alert
-4) Confirm readiness
-
-Click below when done.`,
-          components: [row]
+      if (!category) {
+        category = await guild.channels.create({
+          name: ONBOARD_CATEGORY,
+          type: ChannelType.GuildCategory
         });
-      } catch {}
+      }
+
+      // 🔒 PERMISSIONS
+      const overwrites = [
+        {
+          id: guild.roles.everyone.id,
+          deny: [PermissionsBitField.Flags.ViewChannel]
+        },
+        {
+          id: member.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.Connect,
+            PermissionsBitField.Flags.SendMessages,
+            PermissionsBitField.Flags.ReadMessageHistory
+          ]
+        },
+        {
+          id: guild.members.me.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.ManageChannels,
+            PermissionsBitField.Flags.Connect,
+            PermissionsBitField.Flags.SendMessages
+          ]
+        }
+      ];
+
+      // 👥 TEAM ACCESS
+      ALERT_ROLE_IDS.forEach(roleId => {
+        overwrites.push({
+          id: roleId,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.Connect,
+            PermissionsBitField.Flags.SendMessages
+          ]
+        });
+      });
+
+      // 🎤 CREATE VOICE CHANNEL
+      const voice = await guild.channels.create({
+        name: `Onboarding — ${member.user.username}`,
+        type: ChannelType.GuildVoice,
+        parent: category.id,
+        permissionOverwrites: overwrites
+      });
+
+      // 💬 CREATE TEXT CHANNEL
+      const text = await guild.channels.create({
+        name: `onboarding-${member.user.username}`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: overwrites
+      });
+
+      // 📣 MESSAGE TO CREATOR
+      await text.send(
+`${member} 👋
+
+Your application was approved.
+
+Join the voice channel when ready for live setup:
+
+🔊 ${voice}`
+      );
+
+      // 📣 NOTIFY TEAM
+      const roleMentions = ALERT_ROLE_IDS
+        .map(id => `<@&${id}>`)
+        .join(' ');
+
+      await text.send(
+`${roleMentions}
+
+New onboarding session created.`
+      );
+
+      await supabase
+        .from('creator_applications')
+        .update({ status: 'onboarding' })
+        .eq('id', id);
 
       return interaction.editReply({
-        content: `🟡 APPROVED → Pending Setup`,
+        content: `🟢 APPROVED → Onboarding room created`,
         components: []
       });
     }
 
-    // REJECT
+    // ================= REJECT =================
     if (action === 'reject') {
 
       await supabase
@@ -343,7 +249,7 @@ Click below when done.`,
   }
 
   // =================================================
-  // /apply COMMAND
+  // /apply
   // =================================================
   if (interaction.isChatInputCommand() &&
       interaction.commandName === 'apply') {
