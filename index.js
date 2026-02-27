@@ -92,9 +92,7 @@ client.on('interactionCreate', async interaction => {
       });
 
     // ===== TEAM ROLE =====
-    const teamRole = interaction.guild.roles.cache.find(
-      r => r.name === 'Team'
-    );
+    const teamRole = interaction.guild.roles.cache.get('TEAM_ROLE_ID');
 
     // ===== BUTTONS =====
     const row = new ActionRowBuilder().addComponents(
