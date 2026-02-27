@@ -16,13 +16,13 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 MULTIPLE ALERT ROLES (PINGED IN CHANNEL)
+// 🔴 ALERT ROLES (PINGED)
 const ALERT_ROLE_IDS = [
   '1476924303277822042',
   '1476924829067247646'
 ];
 
-// 🔴 REVIEWERS WHO RECEIVE DM ALERTS
+// 🔴 REVIEWERS WHO GET DM ALERTS
 const REVIEWER_IDS = [
   '532448115861749770',
   '532448115861749770'
@@ -34,7 +34,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ===== DISCORD CLIENT =====
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -42,7 +42,7 @@ const client = new Client({
   ]
 });
 
-// ===== SLASH COMMAND =====
+// ===== COMMAND =====
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
@@ -71,9 +71,14 @@ client.once('clientReady', () => {
 // ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
 
-  // ================= APPLY =================
+  // =================================================
+  // APPLY COMMAND
+  // =================================================
   if (interaction.isChatInputCommand() &&
       interaction.commandName === 'apply') {
+
+    // ✅ FIX: Acknowledge immediately (no timeout)
+    await interaction.deferReply({ flags: 64 });
 
     const details = interaction.options.getString('details');
 
@@ -95,9 +100,8 @@ client.on('interactionCreate', async interaction => {
       );
 
     if (!staffChannel)
-      return interaction.reply({
-        content: 'Staff channel not configured.',
-        ephemeral: true
+      return interaction.editReply({
+        content: 'Staff channel not configured.'
       });
 
     // ===== BUTTONS =====
@@ -118,12 +122,11 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== MULTI-ROLE PING STRING =====
+    // ===== MULTI-ROLE MENTIONS =====
     const roleMentions = ALERT_ROLE_IDS
       .map(id => `<@&${id}>`)
       .join(' ');
 
-    // ===== POST TO STAFF QUEUE =====
     const msg = await staffChannel.send({
       content:
 `${roleMentions}
@@ -162,18 +165,17 @@ ${details}
 
 Review in #creator-applications`
         );
-      } catch {
-        // Ignore DM failures
-      }
+      } catch {}
     }
 
-    await interaction.reply({
-      content: 'Application submitted.',
-      ephemeral: true
+    await interaction.editReply({
+      content: 'Application submitted successfully.'
     });
   }
 
-  // ================= BUTTON HANDLING =================
+  // =================================================
+  // BUTTON HANDLING
+  // =================================================
   if (interaction.isButton()) {
 
     const [action, id] = interaction.customId.split('_');
@@ -187,16 +189,16 @@ Review in #creator-applications`
     if (!app)
       return interaction.reply({
         content: 'Application not found.',
-        ephemeral: true
+        flags: 64
       });
 
-    // ----- CLAIM -----
+    // ---------- CLAIM ----------
     if (action === 'claim') {
 
       if (app.assigned_to)
         return interaction.reply({
           content: 'Already claimed.',
-          ephemeral: true
+          flags: 64
         });
 
       await supabase
@@ -219,21 +221,19 @@ ${app.content}`,
       });
     }
 
-    // ----- APPROVE -----
+    // ---------- APPROVE ----------
     if (action === 'approve') {
 
       const member =
         await interaction.guild.members.fetch(app.discord_id);
 
       const creatorRole =
-        interaction.guild.roles.cache.find(
-          r => r.name === 'Creator'
-        );
+        interaction.guild.roles.cache.find(r => r.name === 'Creator');
 
       if (!creatorRole)
         return interaction.reply({
           content: 'Creator role not found.',
-          ephemeral: true
+          flags: 64
         });
 
       try {
@@ -241,7 +241,7 @@ ${app.content}`,
       } catch {
         return interaction.reply({
           content: 'Role assignment failed.',
-          ephemeral: true
+          flags: 64
         });
       }
 
@@ -265,7 +265,7 @@ User: ${app.username}`,
       });
     }
 
-    // ----- REJECT -----
+    // ---------- REJECT ----------
     if (action === 'reject') {
 
       await supabase
