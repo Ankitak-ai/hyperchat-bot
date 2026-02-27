@@ -1,41 +1,71 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder
+} = require('discord.js');
 
+const { createClient } = require('@supabase/supabase-js');
+
+// ===== ENV VARIABLES =====
+const TOKEN = process.env.BOT_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+// ===== SUPABASE CLIENT =====
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ===== DISCORD CLIENT =====
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// === CONFIG ===
-const TOKEN = process.env.BOT_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID; // Application ID
-const GUILD_ID = process.env.GUILD_ID;   // Your test server ID
-
-// === REGISTER COMMANDS ===
+// ===== SLASH COMMANDS =====
 const commands = [
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Replies with Pong!')
 ].map(cmd => cmd.toJSON());
 
+// ===== REGISTER COMMANDS =====
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async () => {
+async function registerCommands() {
   try {
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
-    console.log('Slash command registered.');
+    console.log('Slash commands registered.');
   } catch (error) {
-    console.error(error);
+    console.error('Command registration failed:', error);
   }
-})();
+}
 
-// === BOT READY ===
-client.once('clientReady', () => {
+// ===== BOT READY =====
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  // Test Supabase connection
+  try {
+    const { data, error } = await supabase
+      .from('test')
+      .select('*')
+      .limit(1);
+
+    if (error) throw error;
+
+    console.log('Supabase connected.');
+  } catch (err) {
+    console.error('Supabase connection failed:', err.message);
+  }
 });
 
-// === HANDLE SLASH COMMANDS ===
+// ===== HANDLE SLASH COMMANDS =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -44,4 +74,13 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-client.login(TOKEN);
+// ===== ERROR HANDLING =====
+process.on('unhandledRejection', error => {
+  console.error('Unhandled promise rejection:', error);
+});
+
+// ===== STARTUP =====
+(async () => {
+  await registerCommands();
+  client.login(TOKEN);
+})();
