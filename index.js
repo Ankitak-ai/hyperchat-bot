@@ -16,13 +16,19 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
+// 🔴 PUT YOUR ROLE IDs HERE
+const ALERT_ROLE_IDS = [
+  '1476924303277822042',
+  '1476924829067247646'
+];
+
 // ===== SUPABASE =====
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ===== DISCORD CLIENT =====
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,7 +36,7 @@ const client = new Client({
   ]
 });
 
-// ===== SLASH COMMAND =====
+// ===== COMMAND =====
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
@@ -49,10 +55,8 @@ async function registerCommands() {
     Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
-  console.log('Slash commands registered.');
 }
 
-// ===== READY =====
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
@@ -60,15 +64,12 @@ client.once('clientReady', () => {
 // ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
 
-  // =========================================================
-  // APPLY COMMAND
-  // =========================================================
+  // ================= APPLY =================
   if (interaction.isChatInputCommand() &&
       interaction.commandName === 'apply') {
 
     const details = interaction.options.getString('details');
 
-    // Save application
     const { data } = await supabase
       .from('creator_applications')
       .insert({
@@ -109,10 +110,15 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== POST TO STAFF QUEUE WITH @everyone =====
+    // ===== BUILD MULTI-ROLE PING STRING =====
+    const roleMentions = ALERT_ROLE_IDS
+      .map(id => `<@&${id}>`)
+      .join(' ');
+
+    // ===== SEND ALERT =====
     const msg = await staffChannel.send({
       content:
-`@everyone
+`${roleMentions}
 
 📩 **New Creator Application**
 
@@ -124,26 +130,23 @@ ${details}
 
 Status: Pending`,
 
-      allowedMentions: { parse: ['everyone'] },
+      allowedMentions: { roles: ALERT_ROLE_IDS },
 
       components: [row]
     });
 
-    // Save message ID
     await supabase
       .from('creator_applications')
       .update({ message_id: msg.id })
       .eq('id', data.id);
 
     await interaction.reply({
-      content: 'Application submitted. Our team will review shortly.',
+      content: 'Application submitted.',
       ephemeral: true
     });
   }
 
-  // =========================================================
-  // BUTTON HANDLING
-  // =========================================================
+  // ================= BUTTON HANDLING =================
   if (interaction.isButton()) {
 
     const [action, id] = interaction.customId.split('_');
@@ -160,12 +163,12 @@ Status: Pending`,
         ephemeral: true
       });
 
-    // ---------------- CLAIM ----------------
+    // ----- CLAIM -----
     if (action === 'claim') {
 
       if (app.assigned_to)
         return interaction.reply({
-          content: 'Already claimed by another reviewer.',
+          content: 'Already claimed.',
           ephemeral: true
         });
 
@@ -189,22 +192,14 @@ ${app.content}`,
       });
     }
 
-    // ---------------- APPROVE ----------------
+    // ----- APPROVE -----
     if (action === 'approve') {
-
-      if (app.status === 'approved')
-        return interaction.reply({
-          content: 'Already approved.',
-          ephemeral: true
-        });
 
       const member =
         await interaction.guild.members.fetch(app.discord_id);
 
       const creatorRole =
-        interaction.guild.roles.cache.find(
-          r => r.name === 'Creator'
-        );
+        interaction.guild.roles.cache.find(r => r.name === 'Creator');
 
       if (!creatorRole)
         return interaction.reply({
@@ -216,7 +211,7 @@ ${app.content}`,
         await member.roles.add(creatorRole);
       } catch {
         return interaction.reply({
-          content: 'Cannot assign role. Check permissions.',
+          content: 'Role assignment failed.',
           ephemeral: true
         });
       }
@@ -241,28 +236,13 @@ User: ${app.username}`,
       });
     }
 
-    // ---------------- REJECT ----------------
+    // ----- REJECT -----
     if (action === 'reject') {
-
-      if (app.status === 'rejected')
-        return interaction.reply({
-          content: 'Already rejected.',
-          ephemeral: true
-        });
 
       await supabase
         .from('creator_applications')
         .update({ status: 'rejected' })
         .eq('id', id);
-
-      try {
-        const member =
-          await interaction.guild.members.fetch(app.discord_id);
-
-        await member.send(
-          'Your HyperChat Creator application was not approved.'
-        );
-      } catch {}
 
       return interaction.update({
         content:
@@ -274,10 +254,6 @@ User: ${app.username}`,
     }
   }
 });
-
-// ===== ERROR HANDLING =====
-client.on('error', console.error);
-process.on('unhandledRejection', console.error);
 
 // ===== START =====
 (async () => {
