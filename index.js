@@ -50,7 +50,6 @@ async function registerCommands() {
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Test Supabase connection
   try {
     const { error } = await supabase
       .from('test')
@@ -65,7 +64,7 @@ client.once('clientReady', async () => {
   }
 });
 
-// ===== AUTO REGISTER WHEN BOT JOINS SERVER =====
+// ===== BOT ADDED TO SERVER =====
 client.on('guildCreate', async guild => {
   try {
     await supabase
@@ -73,12 +72,27 @@ client.on('guildCreate', async guild => {
       .upsert({
         guild_id: guild.id,
         guild_name: guild.name,
-        owner_id: guild.ownerId
+        owner_id: guild.ownerId,
+        is_active: true
       });
 
     console.log(`Registered new server: ${guild.name}`);
   } catch (err) {
     console.error('Guild registration failed:', err.message);
+  }
+});
+
+// ===== BOT REMOVED FROM SERVER =====
+client.on('guildDelete', async guild => {
+  try {
+    await supabase
+      .from('servers')
+      .update({ is_active: false })
+      .eq('guild_id', guild.id);
+
+    console.log(`Server removed: ${guild.name}`);
+  } catch (err) {
+    console.error('Guild removal update failed:', err.message);
   }
 });
 
@@ -88,14 +102,14 @@ client.on('interactionCreate', async interaction => {
 
   const guild = interaction.guild;
 
-  // Ensure server exists in DB (fallback)
   if (guild) {
     await supabase
       .from('servers')
       .upsert({
         guild_id: guild.id,
         guild_name: guild.name,
-        owner_id: guild.ownerId
+        owner_id: guild.ownerId,
+        is_active: true
       });
   }
 
