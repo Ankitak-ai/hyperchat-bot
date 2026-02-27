@@ -24,4 +24,4 @@ client.on('messageCreate', message => {
 });
 
 // Use environment variable for token (required for Railway)
-console.log(process.env.BOT_TOKEN);;
+console.log("BOT_TOKEN:", process.env.BOT_TOKEN);
