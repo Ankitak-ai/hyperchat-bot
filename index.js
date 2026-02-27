@@ -16,10 +16,12 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 PUT YOUR ROLE IDs HERE
-const ALERT_ROLE_IDS = [
-  '1476924303277822042',
-  '1476924829067247646'
+// 🔴 ALERT ROLE (optional but recommended)
+const ALERT_ROLE_ID = '1476924303277822042', '1476924829067247646';
+
+// 🔴 REVIEWERS WHO GET DM ALERTS
+const REVIEWER_IDS = [
+  '532448115861749770'
 ];
 
 // ===== SUPABASE =====
@@ -57,6 +59,7 @@ async function registerCommands() {
   );
 }
 
+// ===== READY =====
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
@@ -70,6 +73,7 @@ client.on('interactionCreate', async interaction => {
 
     const details = interaction.options.getString('details');
 
+    // Save application
     const { data } = await supabase
       .from('creator_applications')
       .insert({
@@ -110,15 +114,10 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== BUILD MULTI-ROLE PING STRING =====
-    const roleMentions = ALERT_ROLE_IDS
-      .map(id => `<@&${id}>`)
-      .join(' ');
-
-    // ===== SEND ALERT =====
+    // ===== POST TO QUEUE CHANNEL =====
     const msg = await staffChannel.send({
       content:
-`${roleMentions}
+`<@&${ALERT_ROLE_ID}>
 
 📩 **New Creator Application**
 
@@ -130,8 +129,7 @@ ${details}
 
 Status: Pending`,
 
-      allowedMentions: { roles: ALERT_ROLE_IDS },
-
+      allowedMentions: { roles: [ALERT_ROLE_ID] },
       components: [row]
     });
 
@@ -139,6 +137,25 @@ Status: Pending`,
       .from('creator_applications')
       .update({ message_id: msg.id })
       .eq('id', data.id);
+
+    // ===== PERSONAL DM ALERTS =====
+    for (const id of REVIEWER_IDS) {
+      try {
+        const user = await client.users.fetch(id);
+
+        await user.send(
+`📩 **New HyperChat Creator Application**
+
+Applicant: ${interaction.user.tag}
+Details:
+${details}
+
+Review in #creator-applications`
+        );
+      } catch {
+        // Ignore DM failures silently
+      }
+    }
 
     await interaction.reply({
       content: 'Application submitted.',
