@@ -13,31 +13,42 @@ const {
 
 const { createClient } = require('@supabase/supabase-js');
 
-// ===== ENV =====
+// ================= ENV =================
 const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// ===== CONFIG =====
-const REVIEWER_IDS = ['1476924303277822042']; // DM alerts
-const SUPPORT_ROLE_IDS = ['532448115861749770']; // optional
+// 🔴 ALERT ROLES (PINGED)
+const ALERT_ROLE_IDS = [
+  '1476924303277822042',
+  '1476924829067247646'
+];
+
+// 🔴 REVIEWERS WHO GET DM ALERTS
+const REVIEWER_IDS = [
+  '532448115861749770'
+];
+
 const CREATOR_ROLE_NAME = 'Creator';
 const TICKET_CATEGORY_NAME = 'Support Tickets';
 
-// ===== SUPABASE =====
+// ================= SUPABASE =================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ===== CLIENT =====
+// ================= CLIENT =================
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
-// =====================================================
-// REGISTER /apply COMMAND
-// =====================================================
+// =================================================
+// REGISTER COMMAND
+// =================================================
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
@@ -58,16 +69,16 @@ async function registerCommands() {
   );
 }
 
-// =====================================================
+// =================================================
 // READY
-// =====================================================
+// =================================================
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// =====================================================
+// =================================================
 // WELCOME MESSAGE
-// =====================================================
+// =================================================
 client.on('guildMemberAdd', async member => {
 
   const channel = member.guild.channels.cache.find(
@@ -99,7 +110,7 @@ client.on('guildMemberAdd', async member => {
 
 HyperChat helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
 
-🎥 Creators: Apply to enable monetization and engagement tools  
+🎥 Creators: Apply to enable monetization tools  
 👀 Community: Stay and explore  
 
 Choose an option below 👇`,
@@ -107,9 +118,9 @@ Choose an option below 👇`,
   });
 });
 
-// =====================================================
+// =================================================
 // INTERACTIONS
-// =====================================================
+// =================================================
 client.on('interactionCreate', async interaction => {
 
   // ================= BUTTONS =================
@@ -159,16 +170,6 @@ client.on('interactionCreate', async interaction => {
           ]
         }
       ];
-
-      for (const roleId of SUPPORT_ROLE_IDS) {
-        overwrites.push({
-          id: roleId,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages
-          ]
-        });
-      }
 
       const ticket = await guild.channels.create({
         name: `support-${user.username}`,
@@ -317,8 +318,12 @@ ${app.content}`,
 
     if (!channel)
       return interaction.editReply({
-        content: 'Staff channel missing.'
+        content: 'Applications channel missing.'
       });
+
+    const roleMentions = ALERT_ROLE_IDS
+      .map(id => `<@&${id}>`)
+      .join(' ');
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -339,15 +344,18 @@ ${app.content}`,
 
     await channel.send({
       content:
-`📩 New Creator Application
+`${roleMentions}
+
+📩 New Creator Application
 
 User: ${interaction.user.tag}
 
 ${details}`,
-      components: [row]
+      components: [row],
+      allowedMentions: { roles: ALERT_ROLE_IDS }
     });
 
-    // DM approvers
+    // DM reviewers
     for (const id of REVIEWER_IDS) {
       try {
         const u = await client.users.fetch(id);
@@ -363,7 +371,7 @@ ${details}`,
   }
 });
 
-// =====================================================
+// =================================================
 (async () => {
   await registerCommands();
   client.login(TOKEN);
