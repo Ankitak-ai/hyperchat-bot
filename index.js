@@ -18,18 +18,19 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 ALERT ROLES
+// 🔴 ROLES TO PING
 const ALERT_ROLE_IDS = [
   '1476924303277822042',
   '1476924829067247646'
 ];
 
-// 🔴 REVIEWERS
+// 🔴 REVIEWERS DM ALERT
 const REVIEWER_IDS = [
   '532448115861749770'
 ];
 
 const CREATOR_ROLE_NAME = 'Creator';
+const PENDING_ROLE_NAME = 'Creator-Pending';
 const TICKET_CATEGORY_NAME = 'Support Tickets';
 
 // ================= SUPABASE =================
@@ -87,7 +88,6 @@ client.on('guildMemberAdd', async member => {
   if (!channel) return;
 
   const row = new ActionRowBuilder().addComponents(
-
     new ButtonBuilder()
       .setCustomId('start_apply')
       .setLabel('Apply as Creator')
@@ -110,9 +110,6 @@ client.on('guildMemberAdd', async member => {
 
 HyperChat helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
 
-🎥 Creators: Apply to enable monetization tools  
-👀 Community: Stay and explore  
-
 Choose an option below 👇`,
     components: [row]
   });
@@ -126,7 +123,6 @@ client.on('interactionCreate', async interaction => {
   // ================= BUTTONS =================
   if (interaction.isButton()) {
 
-    // APPLY INFO
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
         content: 'Use `/apply` with your channel link + intro.',
@@ -134,9 +130,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // =================================================
-    // SUPPORT TICKET (FIXED)
-    // =================================================
+    // ================= SUPPORT TICKET =================
     if (interaction.customId === 'support_ticket') {
 
       await interaction.deferReply({ flags: 64 });
@@ -157,7 +151,6 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // 🔥 CRITICAL: INCLUDE BOT ACCESS
       const overwrites = [
         {
           id: guild.roles.everyone.id,
@@ -206,24 +199,13 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // CLOSE TICKET
     if (interaction.customId === 'close_ticket') {
-
-      await interaction.reply({
-        content: 'Closing...',
-        flags: 64
-      });
-
-      setTimeout(() => {
-        interaction.channel.delete().catch(() => {});
-      }, 3000);
-
+      await interaction.reply({ content: 'Closing...', flags: 64 });
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
       return;
     }
 
-    // =================================================
-    // APPLICATION BUTTONS
-    // =================================================
+    // ================= APPLICATION ACTIONS =================
     const [action, id] = interaction.customId.split('_');
 
     if (!['claim', 'approve', 'reject'].includes(action)) return;
@@ -240,7 +222,6 @@ client.on('interactionCreate', async interaction => {
 
     // CLAIM
     if (action === 'claim') {
-
       if (app.assigned_to) return;
 
       await supabase
@@ -252,51 +233,58 @@ client.on('interactionCreate', async interaction => {
         .eq('id', id);
 
       return interaction.editReply({
-        content:
-`🟡 CLAIMED by ${interaction.user.tag}
-
-${app.username}
-${app.content}`,
+        content: `🟡 CLAIMED by ${interaction.user.tag}`,
         components: interaction.message.components
       });
     }
 
-    // APPROVE
+    // APPROVE → PENDING ROLE
     if (action === 'approve') {
 
       const member =
         await interaction.guild.members.fetch(app.discord_id);
 
-      const role =
+      const pendingRole =
         interaction.guild.roles.cache.find(
-          r => r.name === CREATOR_ROLE_NAME
+          r => r.name === PENDING_ROLE_NAME
         );
 
-      if (role) await member.roles.add(role).catch(() => {});
+      if (!pendingRole)
+        return interaction.editReply({
+          content: 'Creator-Pending role missing.',
+          components: []
+        });
+
+      await member.roles.add(pendingRole).catch(() => {});
 
       await supabase
         .from('creator_applications')
-        .update({ status: 'approved' })
+        .update({ status: 'approved_pending' })
         .eq('id', id);
 
-      try { await member.send('Application approved.'); } catch {}
+      try {
+        await member.send(
+`✅ Your application was approved!
+
+Complete onboarding to activate Creator access.`
+        );
+      } catch {}
 
       return interaction.editReply({
-        content: `✅ APPROVED by ${interaction.user.tag}`,
+        content: `🟡 APPROVED → Pending Setup`,
         components: []
       });
     }
 
     // REJECT
     if (action === 'reject') {
-
       await supabase
         .from('creator_applications')
         .update({ status: 'rejected' })
         .eq('id', id);
 
       return interaction.editReply({
-        content: `❌ REJECTED by ${interaction.user.tag}`,
+        content: `❌ REJECTED`,
         components: []
       });
     }
@@ -366,7 +354,6 @@ ${details}`,
       allowedMentions: { roles: ALERT_ROLE_IDS }
     });
 
-    // DM REVIEWERS
     for (const id of REVIEWER_IDS) {
       try {
         const u = await client.users.fetch(id);
