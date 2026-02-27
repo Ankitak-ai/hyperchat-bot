@@ -8,7 +8,7 @@ const {
 
 const { createClient } = require('@supabase/supabase-js');
 
-// ===== ENV VARIABLES =====
+// ===== ENV =====
 const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
@@ -21,109 +21,124 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ===== DISCORD CLIENT =====
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
 // ===== SLASH COMMANDS =====
 const commands = [
   new SlashCommandBuilder()
+    .setName('apply')
+    .setDescription('Apply for Creator access')
+    .addStringOption(option =>
+      option
+        .setName('details')
+        .setDescription('Your channel link + short intro')
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
     .setName('ping')
-    .setDescription('Replies with Pong!')
+    .setDescription('Test bot')
 ].map(cmd => cmd.toJSON());
 
-// ===== REGISTER COMMANDS =====
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 async function registerCommands() {
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
-    console.log('Slash commands registered.');
-  } catch (error) {
-    console.error('Command registration failed:', error);
-  }
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
+  console.log('Slash commands registered.');
 }
 
-// ===== BOT READY =====
-client.once('clientReady', async () => {
+// ===== READY =====
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
+});
 
+// ===== MEMBER JOIN =====
+client.on('guildMemberAdd', async member => {
   try {
-    const { error } = await supabase
-      .from('test')
-      .select('*')
-      .limit(1);
+    // Assign Member role
+    const memberRole = member.guild.roles.cache.find(r => r.name === 'Member');
+    if (memberRole) await member.roles.add(memberRole);
 
-    if (error) throw error;
+    // Public welcome message
+    const welcomeChannel = member.guild.channels.cache.find(
+      c => c.name === 'welcome'
+    );
 
-    console.log('Supabase connected.');
+    if (welcomeChannel) {
+      welcomeChannel.send(
+        `Welcome ${member} 👋
+
+If you are a creator, use **/apply** to request Creator access.`
+      );
+    }
+
+    // DM instructions
+    await member.send(
+      `Welcome to HyperChat.
+
+To onboard as a creator:
+
+1. Run /apply in the server
+2. Submit your channel link
+3. Our team will review
+4. You will receive Creator role once approved`
+    );
+
+    console.log(`Member joined: ${member.user.tag}`);
   } catch (err) {
-    console.error('Supabase connection failed:', err.message);
+    console.error('Join handling failed:', err.message);
   }
 });
 
-// ===== BOT ADDED TO SERVER =====
-client.on('guildCreate', async guild => {
-  try {
-    await supabase
-      .from('servers')
-      .upsert({
-        guild_id: guild.id,
-        guild_name: guild.name,
-        owner_id: guild.ownerId,
-        is_active: true
-      });
-
-    console.log(`Registered new server: ${guild.name}`);
-  } catch (err) {
-    console.error('Guild registration failed:', err.message);
-  }
-});
-
-// ===== BOT REMOVED FROM SERVER =====
-client.on('guildDelete', async guild => {
-  try {
-    await supabase
-      .from('servers')
-      .update({ is_active: false })
-      .eq('guild_id', guild.id);
-
-    console.log(`Server removed: ${guild.name}`);
-  } catch (err) {
-    console.error('Guild removal update failed:', err.message);
-  }
-});
-
-// ===== HANDLE SLASH COMMANDS =====
+// ===== APPLICATION HANDLING =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const guild = interaction.guild;
-
-  if (guild) {
-    await supabase
-      .from('servers')
-      .upsert({
-        guild_id: guild.id,
-        guild_name: guild.name,
-        owner_id: guild.ownerId,
-        is_active: true
-      });
-  }
-
   if (interaction.commandName === 'ping') {
-    await interaction.reply('Pong');
+    return interaction.reply('Pong');
+  }
+
+  if (interaction.commandName === 'apply') {
+    const details = interaction.options.getString('details');
+
+    // Save to database
+    await supabase.from('creator_applications').insert({
+      discord_id: interaction.user.id,
+      username: interaction.user.tag,
+      content: details
+    });
+
+    // Notify staff channel
+    const staffChannel = interaction.guild.channels.cache.find(
+      c => c.name === 'creator-applications'
+    );
+
+    if (staffChannel) {
+      staffChannel.send(
+        `📩 New Creator Application
+
+User: ${interaction.user.tag}
+ID: ${interaction.user.id}
+
+Details:
+${details}`
+      );
+    }
+
+    await interaction.reply({
+      content: 'Application submitted. Our team will review it shortly.',
+      ephemeral: true
+    });
   }
 });
 
-// ===== ERROR HANDLING =====
-process.on('unhandledRejection', error => {
-  console.error('Unhandled promise rejection:', error);
-});
-
-// ===== STARTUP =====
+// ===== START =====
 (async () => {
   await registerCommands();
   client.login(TOKEN);
