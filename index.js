@@ -16,14 +16,15 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 ALERT ROLE (optional but recommended)
+// 🔴 MULTIPLE ALERT ROLES (PINGED IN CHANNEL)
 const ALERT_ROLE_IDS = [
   '1476924303277822042',
   '1476924829067247646'
 ];
 
-// 🔴 REVIEWERS WHO GET DM ALERTS
+// 🔴 REVIEWERS WHO RECEIVE DM ALERTS
 const REVIEWER_IDS = [
+  '532448115861749770',
   '532448115861749770'
 ];
 
@@ -33,7 +34,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ===== CLIENT =====
+// ===== DISCORD CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -41,7 +42,7 @@ const client = new Client({
   ]
 });
 
-// ===== COMMAND =====
+// ===== SLASH COMMAND =====
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
@@ -117,10 +118,15 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== POST TO QUEUE CHANNEL =====
+    // ===== MULTI-ROLE PING STRING =====
+    const roleMentions = ALERT_ROLE_IDS
+      .map(id => `<@&${id}>`)
+      .join(' ');
+
+    // ===== POST TO STAFF QUEUE =====
     const msg = await staffChannel.send({
       content:
-`<@&${ALERT_ROLE_ID}>
+`${roleMentions}
 
 📩 **New Creator Application**
 
@@ -132,10 +138,11 @@ ${details}
 
 Status: Pending`,
 
-      allowedMentions: { roles: [ALERT_ROLE_ID] },
+      allowedMentions: { roles: ALERT_ROLE_IDS },
       components: [row]
     });
 
+    // Save message ID
     await supabase
       .from('creator_applications')
       .update({ message_id: msg.id })
@@ -147,7 +154,7 @@ Status: Pending`,
         const user = await client.users.fetch(id);
 
         await user.send(
-`📩 **New HyperChat Creator Application**
+`📩 New HyperChat Creator Application
 
 Applicant: ${interaction.user.tag}
 Details:
@@ -156,7 +163,7 @@ ${details}
 Review in #creator-applications`
         );
       } catch {
-        // Ignore DM failures silently
+        // Ignore DM failures
       }
     }
 
@@ -219,7 +226,9 @@ ${app.content}`,
         await interaction.guild.members.fetch(app.discord_id);
 
       const creatorRole =
-        interaction.guild.roles.cache.find(r => r.name === 'Creator');
+        interaction.guild.roles.cache.find(
+          r => r.name === 'Creator'
+        );
 
       if (!creatorRole)
         return interaction.reply({
@@ -274,6 +283,10 @@ User: ${app.username}`,
     }
   }
 });
+
+// ===== ERROR HANDLING =====
+client.on('error', console.error);
+process.on('unhandledRejection', console.error);
 
 // ===== START =====
 (async () => {
