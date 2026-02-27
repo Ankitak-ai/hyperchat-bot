@@ -10,6 +10,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "discord.js": "^14.14.1"
+    "discord.js": "^14.14.1",
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
