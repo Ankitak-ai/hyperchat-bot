@@ -52,7 +52,7 @@ client.once('clientReady', async () => {
 
   // Test Supabase connection
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('test')
       .select('*')
       .limit(1);
@@ -69,6 +69,24 @@ client.once('clientReady', async () => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  // Register / update server in database
+  const guild = interaction.guild;
+
+  if (guild) {
+    try {
+      await supabase
+        .from('servers')
+        .upsert({
+          guild_id: guild.id,
+          guild_name: guild.name,
+          owner_id: guild.ownerId
+        });
+    } catch (err) {
+      console.error('Server upsert failed:', err.message);
+    }
+  }
+
+  // Command handling
   if (interaction.commandName === 'ping') {
     await interaction.reply('Pong');
   }
