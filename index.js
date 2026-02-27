@@ -18,13 +18,13 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 ALERT ROLES (PINGED)
+// 🔴 ALERT ROLES
 const ALERT_ROLE_IDS = [
   '1476924303277822042',
   '1476924829067247646'
 ];
 
-// 🔴 REVIEWERS WHO GET DM ALERTS
+// 🔴 REVIEWERS
 const REVIEWER_IDS = [
   '532448115861749770'
 ];
@@ -47,7 +47,7 @@ const client = new Client({
 });
 
 // =================================================
-// REGISTER COMMAND
+// REGISTER /apply
 // =================================================
 const commands = [
   new SlashCommandBuilder()
@@ -77,7 +77,7 @@ client.once('clientReady', () => {
 });
 
 // =================================================
-// WELCOME MESSAGE
+// WELCOME
 // =================================================
 client.on('guildMemberAdd', async member => {
 
@@ -126,7 +126,7 @@ client.on('interactionCreate', async interaction => {
   // ================= BUTTONS =================
   if (interaction.isButton()) {
 
-    // ---------- APPLY INFO ----------
+    // APPLY INFO
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
         content: 'Use `/apply` with your channel link + intro.',
@@ -135,7 +135,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     // =================================================
-    // SUPPORT TICKET
+    // SUPPORT TICKET (FIXED)
     // =================================================
     if (interaction.customId === 'support_ticket') {
 
@@ -157,6 +157,7 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
+      // 🔥 CRITICAL: INCLUDE BOT ACCESS
       const overwrites = [
         {
           id: guild.roles.everyone.id,
@@ -166,7 +167,17 @@ client.on('interactionCreate', async interaction => {
           id: user.id,
           allow: [
             PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages
+            PermissionsBitField.Flags.SendMessages,
+            PermissionsBitField.Flags.ReadMessageHistory
+          ]
+        },
+        {
+          id: guild.members.me.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages,
+            PermissionsBitField.Flags.ManageChannels,
+            PermissionsBitField.Flags.ReadMessageHistory
           ]
         }
       ];
@@ -195,7 +206,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // ---------- CLOSE TICKET ----------
+    // CLOSE TICKET
     if (interaction.customId === 'close_ticket') {
 
       await interaction.reply({
@@ -355,7 +366,7 @@ ${details}`,
       allowedMentions: { roles: ALERT_ROLE_IDS }
     });
 
-    // DM reviewers
+    // DM REVIEWERS
     for (const id of REVIEWER_IDS) {
       try {
         const u = await client.users.fetch(id);
