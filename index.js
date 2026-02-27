@@ -18,13 +18,11 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 ROLES TO PING
 const ALERT_ROLE_IDS = [
   '1476924303277822042',
   '1476924829067247646'
 ];
 
-// 🔴 REVIEWERS DM ALERT
 const REVIEWER_IDS = [
   '532448115861749770'
 ];
@@ -108,7 +106,7 @@ client.on('guildMemberAdd', async member => {
     content:
 `👋 Welcome ${member}!
 
-HyperChat helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
+HyperChat helps creators turn live streams into interactive experiences.
 
 Choose an option below 👇`,
     components: [row]
@@ -123,6 +121,7 @@ client.on('interactionCreate', async interaction => {
   // ================= BUTTONS =================
   if (interaction.isButton()) {
 
+    // APPLY BUTTON
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
         content: 'Use `/apply` with your channel link + intro.',
@@ -152,27 +151,23 @@ client.on('interactionCreate', async interaction => {
       }
 
       const overwrites = [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel]
-        },
-        {
-          id: user.id,
+        { id: guild.roles.everyone.id,
+          deny: [PermissionsBitField.Flags.ViewChannel] },
+
+        { id: user.id,
           allow: [
             PermissionsBitField.Flags.ViewChannel,
             PermissionsBitField.Flags.SendMessages,
             PermissionsBitField.Flags.ReadMessageHistory
-          ]
-        },
-        {
-          id: guild.members.me.id,
+          ]},
+
+        { id: guild.members.me.id,
           allow: [
             PermissionsBitField.Flags.ViewChannel,
             PermissionsBitField.Flags.SendMessages,
             PermissionsBitField.Flags.ManageChannels,
             PermissionsBitField.Flags.ReadMessageHistory
-          ]
-        }
+          ]}
       ];
 
       const ticket = await guild.channels.create({
@@ -199,13 +194,51 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // CLOSE TICKET
     if (interaction.customId === 'close_ticket') {
       await interaction.reply({ content: 'Closing...', flags: 64 });
       setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
       return;
     }
 
-    // ================= APPLICATION ACTIONS =================
+    // =================================================
+    // ACTIVATION BUTTON
+    // =================================================
+    if (interaction.customId === 'activate_creator') {
+
+      await interaction.deferReply({ flags: 64 });
+
+      const guild = interaction.guild;
+      const member =
+        await guild.members.fetch(interaction.user.id);
+
+      const creatorRole =
+        guild.roles.cache.find(r => r.name === CREATOR_ROLE_NAME);
+
+      const pendingRole =
+        guild.roles.cache.find(r => r.name === PENDING_ROLE_NAME);
+
+      if (!creatorRole || !pendingRole)
+        return interaction.editReply({
+          content: 'Required roles missing.'
+        });
+
+      await member.roles.remove(pendingRole).catch(() => {});
+      await member.roles.add(creatorRole).catch(() => {});
+
+      await supabase
+        .from('creator_applications')
+        .update({ activation_completed: true })
+        .eq('discord_id', interaction.user.id);
+
+      return interaction.editReply({
+        content: '✅ Creator access activated!'
+      });
+    }
+
+    // =================================================
+    // APPLICATION ACTIONS
+    // =================================================
     const [action, id] = interaction.customId.split('_');
 
     if (!['claim', 'approve', 'reject'].includes(action)) return;
@@ -222,6 +255,7 @@ client.on('interactionCreate', async interaction => {
 
     // CLAIM
     if (action === 'claim') {
+
       if (app.assigned_to) return;
 
       await supabase
@@ -238,7 +272,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // APPROVE → PENDING ROLE
+    // APPROVE → SEND WIZARD
     if (action === 'approve') {
 
       const member =
@@ -262,12 +296,29 @@ client.on('interactionCreate', async interaction => {
         .update({ status: 'approved_pending' })
         .eq('id', id);
 
+      // 🔥 SEND SETUP WIZARD DM
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('activate_creator')
+          .setLabel('I Completed Setup')
+          .setStyle(ButtonStyle.Success)
+      );
+
       try {
-        await member.send(
+        await member.send({
+          content:
 `✅ Your application was approved!
 
-Complete onboarding to activate Creator access.`
-        );
+Complete these steps:
+
+1) Connect your streaming platform
+2) Configure alerts
+3) Test donation alert
+4) Confirm readiness
+
+Click below when done.`,
+          components: [row]
+        });
       } catch {}
 
       return interaction.editReply({
@@ -278,6 +329,7 @@ Complete onboarding to activate Creator access.`
 
     // REJECT
     if (action === 'reject') {
+
       await supabase
         .from('creator_applications')
         .update({ status: 'rejected' })
