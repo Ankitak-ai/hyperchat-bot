@@ -16,6 +16,9 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
+// 🔴 REPLACE WITH YOUR ROLE ID
+const TEAM_ROLE_ID = 'HyperChat-Team';
+
 // ===== SUPABASE =====
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -91,9 +94,6 @@ client.on('interactionCreate', async interaction => {
         ephemeral: true
       });
 
-    // ===== TEAM ROLE =====
-   const teamRole = interaction.guild.roles.cache.get('1476926926378500279');
-
     // ===== BUTTONS =====
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -112,10 +112,10 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== POST TO STAFF QUEUE WITH RELIABLE PING =====
+    // ===== RELIABLE ROLE PING USING ID =====
     const msg = await staffChannel.send({
-      content: teamRole
-        ? `<@&${teamRole.id}>
+      content:
+`<@&${TEAM_ROLE_ID}>
 
 📩 **New Creator Application**
 
@@ -125,20 +125,11 @@ ID: ${interaction.user.id}
 Details:
 ${details}
 
-Status: Pending`
-        : `📩 **New Creator Application**
-
-User: ${interaction.user.tag}
-ID: ${interaction.user.id}
-
-Details:
-${details}
-
 Status: Pending`,
 
-      allowedMentions: teamRole
-        ? { roles: [teamRole.id] }
-        : { parse: [] },
+      allowedMentions: {
+        roles: [TEAM_ROLE_ID]
+      },
 
       components: [row]
     });
@@ -193,7 +184,7 @@ Status: Pending`,
 
       return interaction.update({
         content:
-`🟡 **CLAIMED by ${interaction.user.tag}**
+`🟡 CLAIMED by ${interaction.user.tag}
 
 User: ${app.username}
 
@@ -216,9 +207,7 @@ ${app.content}`,
         await interaction.guild.members.fetch(app.discord_id);
 
       const creatorRole =
-        interaction.guild.roles.cache.find(
-          r => r.name === 'Creator'
-        );
+        interaction.guild.roles.cache.find(r => r.name === 'Creator');
 
       if (!creatorRole)
         return interaction.reply({
@@ -248,7 +237,7 @@ ${app.content}`,
 
       return interaction.update({
         content:
-`✅ **APPROVED by ${interaction.user.tag}**
+`✅ APPROVED by ${interaction.user.tag}
 
 User: ${app.username}`,
         components: []
@@ -280,7 +269,7 @@ User: ${app.username}`,
 
       return interaction.update({
         content:
-`❌ **REJECTED by ${interaction.user.tag}**
+`❌ REJECTED by ${interaction.user.tag}
 
 User: ${app.username}`,
         components: []
