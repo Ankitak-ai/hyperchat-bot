@@ -29,7 +29,6 @@ const REVIEWER_IDS = [
   '532448115861749770',
   '532448115861749770'
 ];
-
 const CREATOR_ROLE_NAME = 'Creator';
 const TICKET_CATEGORY_NAME = 'Support Tickets';
 
@@ -41,14 +40,11 @@ const supabase = createClient(
 
 // ===== CLIENT =====
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
 // =====================================================
-// /apply COMMAND
+// REGISTER /apply COMMAND
 // =====================================================
 const commands = [
   new SlashCommandBuilder()
@@ -107,9 +103,14 @@ client.on('guildMemberAdd', async member => {
 
   await channel.send({
     content:
-`Welcome ${member}
+`👋 Welcome ${member}!
 
-HyperChat enables interactive monetization for live creators.`,
+HyperChat helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
+
+🎥 Creators: Apply to enable monetization and engagement tools  
+👀 Community: Stay and explore  
+
+Choose an option below 👇`,
     components: [row]
   });
 });
@@ -122,7 +123,10 @@ client.on('interactionCreate', async interaction => {
   // ================= BUTTONS =================
   if (interaction.isButton()) {
 
-    // ---- APPLY HELP ----
+    // -----------------------------------------
+    // WELCOME BUTTONS
+    // -----------------------------------------
+
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
         content: 'Use `/apply` with your channel link + intro.',
@@ -130,9 +134,10 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // =================================================
+    // -----------------------------------------
     // SUPPORT TICKET
-    // =================================================
+    // -----------------------------------------
+
     if (interaction.customId === 'support_ticket') {
 
       const guild = interaction.guild;
@@ -214,7 +219,10 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // ---- CLOSE TICKET ----
+    // -----------------------------------------
+    // CLOSE TICKET
+    // -----------------------------------------
+
     if (interaction.customId === 'close_ticket') {
       await interaction.reply({
         content: 'Closing...',
@@ -224,13 +232,17 @@ client.on('interactionCreate', async interaction => {
       setTimeout(() => {
         interaction.channel.delete().catch(() => {});
       }, 3000);
+
+      return;
     }
 
-    // =================================================
-    // APPLICATION BUTTONS
-    // =================================================
+    // -----------------------------------------
+    // APPLICATION BUTTONS ONLY
+    // -----------------------------------------
+
     const [action, id] = interaction.customId.split('_');
-    if (!id) return;
+
+    if (!['claim', 'approve', 'reject'].includes(action)) return;
 
     const { data: app } = await supabase
       .from('creator_applications')
@@ -240,7 +252,7 @@ client.on('interactionCreate', async interaction => {
 
     if (!app)
       return interaction.reply({
-        content: 'Not found.',
+        content: 'Application not found.',
         flags: 64
       });
 
@@ -263,7 +275,7 @@ client.on('interactionCreate', async interaction => {
 
       return interaction.update({
         content:
-`CLAIMED by ${interaction.user.tag}
+`🟡 CLAIMED by ${interaction.user.tag}
 
 ${app.username}
 ${app.content}`,
@@ -282,9 +294,7 @@ ${app.content}`,
           r => r.name === CREATOR_ROLE_NAME
         );
 
-      if (role) {
-        await member.roles.add(role).catch(() => {});
-      }
+      if (role) await member.roles.add(role).catch(() => {});
 
       await supabase
         .from('creator_applications')
@@ -294,7 +304,7 @@ ${app.content}`,
       try { await member.send('Application approved.'); } catch {}
 
       return interaction.update({
-        content: `APPROVED by ${interaction.user.tag}`,
+        content: `✅ APPROVED by ${interaction.user.tag}`,
         components: []
       });
     }
@@ -308,7 +318,7 @@ ${app.content}`,
         .eq('id', id);
 
       return interaction.update({
-        content: `REJECTED by ${interaction.user.tag}`,
+        content: `❌ REJECTED by ${interaction.user.tag}`,
         components: []
       });
     }
@@ -363,9 +373,10 @@ ${app.content}`,
 
     await channel.send({
       content:
-`New Creator Application
+`📩 New Creator Application
 
 User: ${interaction.user.tag}
+
 ${details}`,
       components: [row]
     });
