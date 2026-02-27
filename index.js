@@ -3,7 +3,8 @@ const {
   GatewayIntentBits,
   REST,
   Routes,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  PermissionFlagsBits
 } = require('discord.js');
 
 const { createClient } = require('@supabase/supabase-js');
@@ -29,19 +30,46 @@ const client = new Client({
 
 // ===== SLASH COMMANDS =====
 const commands = [
+
   new SlashCommandBuilder()
     .setName('apply')
     .setDescription('Apply for Creator access')
-    .addStringOption(option =>
-      option
-        .setName('details')
-        .setDescription('Your channel link + short intro')
+    .addStringOption(o =>
+      o.setName('details')
+        .setDescription('Channel link + intro')
         .setRequired(true)
     ),
+
+  new SlashCommandBuilder()
+    .setName('approve')
+    .setDescription('Approve a creator')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('User to approve')
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('reject')
+    .setDescription('Reject a creator')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('User to reject')
+        .setRequired(true)
+    )
+    .addStringOption(o =>
+      o.setName('reason')
+        .setDescription('Reason for rejection')
+        .setRequired(true)
+    ),
+
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('Test bot')
-].map(cmd => cmd.toJSON());
+
+].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
@@ -60,81 +88,92 @@ client.once('clientReady', () => {
 
 // ===== MEMBER JOIN =====
 client.on('guildMemberAdd', async member => {
-  try {
-    // Assign Member role
-    const memberRole = member.guild.roles.cache.find(r => r.name === 'Member');
-    if (memberRole) await member.roles.add(memberRole);
-
-    // Public welcome message
-    const welcomeChannel = member.guild.channels.cache.find(
-      c => c.name === 'welcome'
-    );
-
-    if (welcomeChannel) {
-      welcomeChannel.send(
-        `Welcome ${member} 👋
-
-If you are a creator, use **/apply** to request Creator access.`
-      );
-    }
-
-    // DM instructions
-    await member.send(
-      `Welcome to HyperChat.
-
-To onboard as a creator:
-
-1. Run /apply in the server
-2. Submit your channel link
-3. Our team will review
-4. You will receive Creator role once approved`
-    );
-
-    console.log(`Member joined: ${member.user.tag}`);
-  } catch (err) {
-    console.error('Join handling failed:', err.message);
-  }
+  const role = member.guild.roles.cache.find(r => r.name === 'Member');
+  if (role) await member.roles.add(role);
 });
 
-// ===== APPLICATION HANDLING =====
+// ===== COMMAND HANDLER =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'ping') {
-    return interaction.reply('Pong');
-  }
-
+  // ===== APPLY =====
   if (interaction.commandName === 'apply') {
     const details = interaction.options.getString('details');
 
-    // Save to database
     await supabase.from('creator_applications').insert({
       discord_id: interaction.user.id,
       username: interaction.user.tag,
       content: details
     });
 
-    // Notify staff channel
-    const staffChannel = interaction.guild.channels.cache.find(
-      c => c.name === 'creator-applications'
-    );
-
-    if (staffChannel) {
-      staffChannel.send(
-        `📩 New Creator Application
-
-User: ${interaction.user.tag}
-ID: ${interaction.user.id}
-
-Details:
-${details}`
-      );
-    }
-
     await interaction.reply({
-      content: 'Application submitted. Our team will review it shortly.',
+      content: 'Application submitted.',
       ephemeral: true
     });
+  }
+
+  // ===== APPROVE =====
+  if (interaction.commandName === 'approve') {
+
+    const user = interaction.options.getUser('user');
+    const member = await interaction.guild.members.fetch(user.id);
+
+    const creatorRole = interaction.guild.roles.cache.find(
+      r => r.name === 'Creator'
+    );
+
+    if (creatorRole) await member.roles.add(creatorRole);
+
+    // Update DB
+    await supabase
+      .from('creator_applications')
+      .update({
+        status: 'approved',
+        reviewed_by: interaction.user.id,
+        reviewed_at: new Date()
+      })
+      .eq('discord_id', user.id);
+
+    // DM user
+    await user.send(
+      `Your HyperChat Creator application has been approved.
+
+You now have Creator access. Follow setup instructions in the server.`
+    );
+
+    await interaction.reply(`Approved ${user.tag}`);
+  }
+
+  // ===== REJECT =====
+  if (interaction.commandName === 'reject') {
+
+    const user = interaction.options.getUser('user');
+    const reason = interaction.options.getString('reason');
+
+    await supabase
+      .from('creator_applications')
+      .update({
+        status: 'rejected',
+        reviewed_by: interaction.user.id,
+        reviewed_at: new Date(),
+        rejection_reason: reason
+      })
+      .eq('discord_id', user.id);
+
+    await user.send(
+      `Your HyperChat Creator application was not approved.
+
+Reason: ${reason}
+
+You may reapply in the future.`
+    );
+
+    await interaction.reply(`Rejected ${user.tag}`);
+  }
+
+  // ===== PING =====
+  if (interaction.commandName === 'ping') {
+    await interaction.reply('Pong');
   }
 });
 
