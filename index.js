@@ -6,7 +6,9 @@ const {
   SlashCommandBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType,
+  PermissionsBitField
 } = require('discord.js');
 
 const { createClient } = require('@supabase/supabase-js');
@@ -28,6 +30,8 @@ const REVIEWER_IDS = [
   '532448115861749770'
 ];
 
+const CREATOR_ROLE_NAME = 'Creator';
+const TICKET_CATEGORY_NAME = 'Support Tickets';
 
 // ===== SUPABASE =====
 const supabase = createClient(
@@ -44,7 +48,7 @@ const client = new Client({
 });
 
 // =====================================================
-// SLASH COMMAND: /apply
+// /apply COMMAND
 // =====================================================
 const commands = [
   new SlashCommandBuilder()
@@ -52,7 +56,7 @@ const commands = [
     .setDescription('Apply for Creator access')
     .addStringOption(o =>
       o.setName('details')
-        .setDescription('Channel link + short intro')
+        .setDescription('Channel link + intro')
         .setRequired(true)
     )
 ].map(c => c.toJSON());
@@ -74,14 +78,13 @@ client.once('clientReady', () => {
 });
 
 // =====================================================
-// CLEAN INTERACTIVE WELCOME MESSAGE
+// WELCOME MESSAGE
 // =====================================================
 client.on('guildMemberAdd', async member => {
 
   const channel = member.guild.channels.cache.find(
     c => c.name === 'welcome'
   );
-
   if (!channel) return;
 
   const row = new ActionRowBuilder().addComponents(
@@ -92,26 +95,21 @@ client.on('guildMemberAdd', async member => {
       .setStyle(ButtonStyle.Primary),
 
     new ButtonBuilder()
-      .setLabel('Visit Website')
+      .setLabel('Website')
       .setStyle(ButtonStyle.Link)
       .setURL('https://www.hyperchat.site/'),
 
     new ButtonBuilder()
-      .setCustomId('support_info')
+      .setCustomId('support_ticket')
       .setLabel('Get Support')
       .setStyle(ButtonStyle.Secondary)
   );
 
   await channel.send({
     content:
-`👋 **Welcome ${member}!**
+`Welcome ${member}
 
-**HyperChat** helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
-
-🎥 **Creators:** Apply to enable monetization and engagement tools  
-👀 **Community:** Stay and explore
-
-Choose an option below 👇`,
+HyperChat enables interactive monetization for live creators.`,
     components: [row]
   });
 });
@@ -121,31 +119,118 @@ Choose an option below 👇`,
 // =====================================================
 client.on('interactionCreate', async interaction => {
 
-  // ---------------------------------------------------
-  // BUTTON ACTIONS (WELCOME)
-  // ---------------------------------------------------
+  // ================= BUTTONS =================
   if (interaction.isButton()) {
 
+    // ---- APPLY HELP ----
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
-        content:
-'Use the `/apply` command and include your channel link + intro.',
-        flags: 64
-      });
-    }
-
-    if (interaction.customId === 'support_info') {
-      return interaction.reply({
-        content:
-'Contact the HyperChat team in the support channel.',
+        content: 'Use `/apply` with your channel link + intro.',
         flags: 64
       });
     }
 
     // =================================================
-    // APPLICATION BUTTON HANDLING
+    // SUPPORT TICKET
+    // =================================================
+    if (interaction.customId === 'support_ticket') {
+
+      const guild = interaction.guild;
+      const user = interaction.user;
+
+      const existing = guild.channels.cache.find(
+        c =>
+          c.name === `support-${user.username}` &&
+          c.parent &&
+          c.parent.name === TICKET_CATEGORY_NAME
+      );
+
+      if (existing) {
+        return interaction.reply({
+          content: `Existing ticket: ${existing}`,
+          flags: 64
+        });
+      }
+
+      let category = guild.channels.cache.find(
+        c =>
+          c.name === TICKET_CATEGORY_NAME &&
+          c.type === ChannelType.GuildCategory
+      );
+
+      if (!category) {
+        category = await guild.channels.create({
+          name: TICKET_CATEGORY_NAME,
+          type: ChannelType.GuildCategory
+        });
+      }
+
+      const overwrites = [
+        {
+          id: guild.roles.everyone.id,
+          deny: [PermissionsBitField.Flags.ViewChannel]
+        },
+        {
+          id: user.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages
+          ]
+        }
+      ];
+
+      for (const roleId of SUPPORT_ROLE_IDS) {
+        overwrites.push({
+          id: roleId,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages
+          ]
+        });
+      }
+
+      const ticket = await guild.channels.create({
+        name: `support-${user.username}`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: overwrites
+      });
+
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('close_ticket')
+          .setLabel('Close Ticket')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await ticket.send({
+        content: `${user} Describe your issue.`,
+        components: [closeRow]
+      });
+
+      return interaction.reply({
+        content: `Ticket created: ${ticket}`,
+        flags: 64
+      });
+    }
+
+    // ---- CLOSE TICKET ----
+    if (interaction.customId === 'close_ticket') {
+      await interaction.reply({
+        content: 'Closing...',
+        flags: 64
+      });
+
+      setTimeout(() => {
+        interaction.channel.delete().catch(() => {});
+      }, 3000);
+    }
+
+    // =================================================
+    // APPLICATION BUTTONS
     // =================================================
     const [action, id] = interaction.customId.split('_');
+    if (!id) return;
 
     const { data: app } = await supabase
       .from('creator_applications')
@@ -155,11 +240,11 @@ client.on('interactionCreate', async interaction => {
 
     if (!app)
       return interaction.reply({
-        content: 'Application not found.',
+        content: 'Not found.',
         flags: 64
       });
 
-    // ---------- CLAIM ----------
+    // CLAIM
     if (action === 'claim') {
 
       if (app.assigned_to)
@@ -172,23 +257,21 @@ client.on('interactionCreate', async interaction => {
         .from('creator_applications')
         .update({
           assigned_to: interaction.user.id,
-          status: 'in_review'
+          status: 'review'
         })
         .eq('id', id);
 
       return interaction.update({
         content:
-`🟡 CLAIMED by ${interaction.user.tag}
+`CLAIMED by ${interaction.user.tag}
 
-User: ${app.username}
-
-Details:
+${app.username}
 ${app.content}`,
         components: interaction.message.components
       });
     }
 
-    // ---------- APPROVE ----------
+    // APPROVE
     if (action === 'approve') {
 
       const member =
@@ -196,22 +279,11 @@ ${app.content}`,
 
       const role =
         interaction.guild.roles.cache.find(
-          r => r.name === 'Creator'
+          r => r.name === CREATOR_ROLE_NAME
         );
 
-      if (!role)
-        return interaction.reply({
-          content: 'Creator role not found.',
-          flags: 64
-        });
-
-      try {
-        await member.roles.add(role);
-      } catch {
-        return interaction.reply({
-          content: 'Cannot assign role. Check permissions.',
-          flags: 64
-        });
+      if (role) {
+        await member.roles.add(role).catch(() => {});
       }
 
       await supabase
@@ -219,22 +291,15 @@ ${app.content}`,
         .update({ status: 'approved' })
         .eq('id', id);
 
-      try {
-        await member.send(
-          'Your HyperChat Creator application has been approved.'
-        );
-      } catch {}
+      try { await member.send('Application approved.'); } catch {}
 
       return interaction.update({
-        content:
-`✅ APPROVED by ${interaction.user.tag}
-
-User: ${app.username}`,
+        content: `APPROVED by ${interaction.user.tag}`,
         components: []
       });
     }
 
-    // ---------- REJECT ----------
+    // REJECT
     if (action === 'reject') {
 
       await supabase
@@ -243,10 +308,7 @@ User: ${app.username}`,
         .eq('id', id);
 
       return interaction.update({
-        content:
-`❌ REJECTED by ${interaction.user.tag}
-
-User: ${app.username}`,
+        content: `REJECTED by ${interaction.user.tag}`,
         components: []
       });
     }
@@ -267,20 +329,19 @@ User: ${app.username}`,
       .insert({
         discord_id: interaction.user.id,
         username: interaction.user.tag,
-        content: details,
-        status: 'pending'
+        content: details
       })
       .select()
       .single();
 
-    const staffChannel =
+    const channel =
       interaction.guild.channels.cache.find(
         c => c.name === 'creator-applications'
       );
 
-    if (!staffChannel)
+    if (!channel)
       return interaction.editReply({
-        content: 'Staff channel not configured.'
+        content: 'Staff channel missing.'
       });
 
     const row = new ActionRowBuilder().addComponents(
@@ -300,56 +361,31 @@ User: ${app.username}`,
         .setStyle(ButtonStyle.Danger)
     );
 
-    const mentions = ALERT_ROLE_IDS
-      .map(id => `<@&${id}>`)
-      .join(' ');
-
-    const msg = await staffChannel.send({
+    await channel.send({
       content:
-`${mentions}
-
-📩 **New Creator Application**
+`New Creator Application
 
 User: ${interaction.user.tag}
-ID: ${interaction.user.id}
-
-Details:
-${details}
-
-Status: Pending`,
-      allowedMentions: { roles: ALERT_ROLE_IDS },
+${details}`,
       components: [row]
     });
 
-    await supabase
-      .from('creator_applications')
-      .update({ message_id: msg.id })
-      .eq('id', data.id);
-
-    // DM reviewers
+    // DM approvers
     for (const id of REVIEWER_IDS) {
       try {
-        const user = await client.users.fetch(id);
-        await user.send(
-`📩 New HyperChat Creator Application
-
-Applicant: ${interaction.user.tag}
-Details:
-${details}
-
-Check #creator-applications`
+        const u = await client.users.fetch(id);
+        await u.send(
+          `New creator application from ${interaction.user.tag}`
         );
       } catch {}
     }
 
     await interaction.editReply({
-      content: 'Application submitted successfully.'
+      content: 'Application submitted.'
     });
   }
 });
 
-// =====================================================
-// START
 // =====================================================
 (async () => {
   await registerCommands();
