@@ -28,6 +28,7 @@ const REVIEWER_IDS = [
   '532448115861749770'
 ];
 
+
 // ===== SUPABASE =====
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -42,14 +43,16 @@ const client = new Client({
   ]
 });
 
-// ===== COMMAND =====
+// =====================================================
+// SLASH COMMAND: /apply
+// =====================================================
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
     .setDescription('Apply for Creator access')
     .addStringOption(o =>
       o.setName('details')
-        .setDescription('Channel link + intro')
+        .setDescription('Channel link + short intro')
         .setRequired(true)
     )
 ].map(c => c.toJSON());
@@ -63,121 +66,85 @@ async function registerCommands() {
   );
 }
 
-// ===== READY =====
+// =====================================================
+// READY
+// =====================================================
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ===== INTERACTIONS =====
+// =====================================================
+// CLEAN INTERACTIVE WELCOME MESSAGE
+// =====================================================
+client.on('guildMemberAdd', async member => {
+
+  const channel = member.guild.channels.cache.find(
+    c => c.name === 'welcome'
+  );
+
+  if (!channel) return;
+
+  const row = new ActionRowBuilder().addComponents(
+
+    new ButtonBuilder()
+      .setCustomId('start_apply')
+      .setLabel('Apply as Creator')
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setLabel('Visit Website')
+      .setStyle(ButtonStyle.Link)
+      .setURL('https://www.hyperchat.site/'),
+
+    new ButtonBuilder()
+      .setCustomId('support_info')
+      .setLabel('Get Support')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  await channel.send({
+    content:
+`👋 **Welcome ${member}!**
+
+**HyperChat** helps creators turn live streams into interactive experiences using text, voice, sound, and image alerts.
+
+🎥 **Creators:** Apply to enable monetization and engagement tools  
+👀 **Community:** Stay and explore
+
+Choose an option below 👇`,
+    components: [row]
+  });
+});
+
+// =====================================================
+// INTERACTIONS
+// =====================================================
 client.on('interactionCreate', async interaction => {
 
-  // =================================================
-  // APPLY COMMAND
-  // =================================================
-  if (interaction.isChatInputCommand() &&
-      interaction.commandName === 'apply') {
-
-    // ✅ FIX: Acknowledge immediately (no timeout)
-    await interaction.deferReply({ flags: 64 });
-
-    const details = interaction.options.getString('details');
-
-    // Save application
-    const { data } = await supabase
-      .from('creator_applications')
-      .insert({
-        discord_id: interaction.user.id,
-        username: interaction.user.tag,
-        content: details,
-        status: 'pending'
-      })
-      .select()
-      .single();
-
-    const staffChannel =
-      interaction.guild.channels.cache.find(
-        c => c.name === 'creator-applications'
-      );
-
-    if (!staffChannel)
-      return interaction.editReply({
-        content: 'Staff channel not configured.'
-      });
-
-    // ===== BUTTONS =====
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`claim_${data.id}`)
-        .setLabel('Claim')
-        .setStyle(ButtonStyle.Primary),
-
-      new ButtonBuilder()
-        .setCustomId(`approve_${data.id}`)
-        .setLabel('Approve')
-        .setStyle(ButtonStyle.Success),
-
-      new ButtonBuilder()
-        .setCustomId(`reject_${data.id}`)
-        .setLabel('Reject')
-        .setStyle(ButtonStyle.Danger)
-    );
-
-    // ===== MULTI-ROLE MENTIONS =====
-    const roleMentions = ALERT_ROLE_IDS
-      .map(id => `<@&${id}>`)
-      .join(' ');
-
-    const msg = await staffChannel.send({
-      content:
-`${roleMentions}
-
-📩 **New Creator Application**
-
-User: ${interaction.user.tag}
-ID: ${interaction.user.id}
-
-Details:
-${details}
-
-Status: Pending`,
-
-      allowedMentions: { roles: ALERT_ROLE_IDS },
-      components: [row]
-    });
-
-    // Save message ID
-    await supabase
-      .from('creator_applications')
-      .update({ message_id: msg.id })
-      .eq('id', data.id);
-
-    // ===== PERSONAL DM ALERTS =====
-    for (const id of REVIEWER_IDS) {
-      try {
-        const user = await client.users.fetch(id);
-
-        await user.send(
-`📩 New HyperChat Creator Application
-
-Applicant: ${interaction.user.tag}
-Details:
-${details}
-
-Review in #creator-applications`
-        );
-      } catch {}
-    }
-
-    await interaction.editReply({
-      content: 'Application submitted successfully.'
-    });
-  }
-
-  // =================================================
-  // BUTTON HANDLING
-  // =================================================
+  // ---------------------------------------------------
+  // BUTTON ACTIONS (WELCOME)
+  // ---------------------------------------------------
   if (interaction.isButton()) {
 
+    if (interaction.customId === 'start_apply') {
+      return interaction.reply({
+        content:
+'Use the `/apply` command and include your channel link + intro.',
+        flags: 64
+      });
+    }
+
+    if (interaction.customId === 'support_info') {
+      return interaction.reply({
+        content:
+'Contact the HyperChat team in the support channel.',
+        flags: 64
+      });
+    }
+
+    // =================================================
+    // APPLICATION BUTTON HANDLING
+    // =================================================
     const [action, id] = interaction.customId.split('_');
 
     const { data: app } = await supabase
@@ -227,20 +194,22 @@ ${app.content}`,
       const member =
         await interaction.guild.members.fetch(app.discord_id);
 
-      const creatorRole =
-        interaction.guild.roles.cache.find(r => r.name === 'Creator');
+      const role =
+        interaction.guild.roles.cache.find(
+          r => r.name === 'Creator'
+        );
 
-      if (!creatorRole)
+      if (!role)
         return interaction.reply({
           content: 'Creator role not found.',
           flags: 64
         });
 
       try {
-        await member.roles.add(creatorRole);
+        await member.roles.add(role);
       } catch {
         return interaction.reply({
-          content: 'Role assignment failed.',
+          content: 'Cannot assign role. Check permissions.',
           flags: 64
         });
       }
@@ -282,13 +251,106 @@ User: ${app.username}`,
       });
     }
   }
+
+  // =================================================
+  // /apply COMMAND
+  // =================================================
+  if (interaction.isChatInputCommand() &&
+      interaction.commandName === 'apply') {
+
+    await interaction.deferReply({ flags: 64 });
+
+    const details = interaction.options.getString('details');
+
+    const { data } = await supabase
+      .from('creator_applications')
+      .insert({
+        discord_id: interaction.user.id,
+        username: interaction.user.tag,
+        content: details,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    const staffChannel =
+      interaction.guild.channels.cache.find(
+        c => c.name === 'creator-applications'
+      );
+
+    if (!staffChannel)
+      return interaction.editReply({
+        content: 'Staff channel not configured.'
+      });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`claim_${data.id}`)
+        .setLabel('Claim')
+        .setStyle(ButtonStyle.Primary),
+
+      new ButtonBuilder()
+        .setCustomId(`approve_${data.id}`)
+        .setLabel('Approve')
+        .setStyle(ButtonStyle.Success),
+
+      new ButtonBuilder()
+        .setCustomId(`reject_${data.id}`)
+        .setLabel('Reject')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    const mentions = ALERT_ROLE_IDS
+      .map(id => `<@&${id}>`)
+      .join(' ');
+
+    const msg = await staffChannel.send({
+      content:
+`${mentions}
+
+📩 **New Creator Application**
+
+User: ${interaction.user.tag}
+ID: ${interaction.user.id}
+
+Details:
+${details}
+
+Status: Pending`,
+      allowedMentions: { roles: ALERT_ROLE_IDS },
+      components: [row]
+    });
+
+    await supabase
+      .from('creator_applications')
+      .update({ message_id: msg.id })
+      .eq('id', data.id);
+
+    // DM reviewers
+    for (const id of REVIEWER_IDS) {
+      try {
+        const user = await client.users.fetch(id);
+        await user.send(
+`📩 New HyperChat Creator Application
+
+Applicant: ${interaction.user.tag}
+Details:
+${details}
+
+Check #creator-applications`
+        );
+      } catch {}
+    }
+
+    await interaction.editReply({
+      content: 'Application submitted successfully.'
+    });
+  }
 });
 
-// ===== ERROR HANDLING =====
-client.on('error', console.error);
-process.on('unhandledRejection', console.error);
-
-// ===== START =====
+// =====================================================
+// START
+// =====================================================
 (async () => {
   await registerCommands();
   client.login(TOKEN);
