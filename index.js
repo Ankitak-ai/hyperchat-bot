@@ -18,17 +18,9 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-// 🔴 ALERT ROLES (PINGED)
-const ALERT_ROLE_IDS = [
-  '1476924303277822042',
-  '1476924829067247646'
-];
-
-// 🔴 REVIEWERS WHO GET DM ALERTS
-const REVIEWER_IDS = [
-  '532448115861749770',
-  '532448115861749770'
-];
+// ===== CONFIG =====
+const REVIEWER_IDS = ['1476924303277822042']; // DM alerts
+const SUPPORT_ROLE_IDS = ['532448115861749770']; // optional
 const CREATOR_ROLE_NAME = 'Creator';
 const TICKET_CATEGORY_NAME = 'Support Tickets';
 
@@ -123,10 +115,7 @@ client.on('interactionCreate', async interaction => {
   // ================= BUTTONS =================
   if (interaction.isButton()) {
 
-    // -----------------------------------------
-    // WELCOME BUTTONS
-    // -----------------------------------------
-
+    // ---------- APPLY INFO ----------
     if (interaction.customId === 'start_apply') {
       return interaction.reply({
         content: 'Use `/apply` with your channel link + intro.',
@@ -134,28 +123,15 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // -----------------------------------------
+    // =================================================
     // SUPPORT TICKET
-    // -----------------------------------------
-
+    // =================================================
     if (interaction.customId === 'support_ticket') {
+
+      await interaction.deferReply({ flags: 64 });
 
       const guild = interaction.guild;
       const user = interaction.user;
-
-      const existing = guild.channels.cache.find(
-        c =>
-          c.name === `support-${user.username}` &&
-          c.parent &&
-          c.parent.name === TICKET_CATEGORY_NAME
-      );
-
-      if (existing) {
-        return interaction.reply({
-          content: `Existing ticket: ${existing}`,
-          flags: 64
-        });
-      }
 
       let category = guild.channels.cache.find(
         c =>
@@ -213,17 +189,14 @@ client.on('interactionCreate', async interaction => {
         components: [closeRow]
       });
 
-      return interaction.reply({
-        content: `Ticket created: ${ticket}`,
-        flags: 64
+      return interaction.editReply({
+        content: `Ticket created: ${ticket}`
       });
     }
 
-    // -----------------------------------------
-    // CLOSE TICKET
-    // -----------------------------------------
-
+    // ---------- CLOSE TICKET ----------
     if (interaction.customId === 'close_ticket') {
+
       await interaction.reply({
         content: 'Closing...',
         flags: 64
@@ -236,13 +209,14 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // -----------------------------------------
-    // APPLICATION BUTTONS ONLY
-    // -----------------------------------------
-
+    // =================================================
+    // APPLICATION BUTTONS
+    // =================================================
     const [action, id] = interaction.customId.split('_');
 
     if (!['claim', 'approve', 'reject'].includes(action)) return;
+
+    await interaction.deferUpdate();
 
     const { data: app } = await supabase
       .from('creator_applications')
@@ -250,20 +224,12 @@ client.on('interactionCreate', async interaction => {
       .eq('id', id)
       .single();
 
-    if (!app)
-      return interaction.reply({
-        content: 'Application not found.',
-        flags: 64
-      });
+    if (!app) return;
 
     // CLAIM
     if (action === 'claim') {
 
-      if (app.assigned_to)
-        return interaction.reply({
-          content: 'Already claimed.',
-          flags: 64
-        });
+      if (app.assigned_to) return;
 
       await supabase
         .from('creator_applications')
@@ -273,7 +239,7 @@ client.on('interactionCreate', async interaction => {
         })
         .eq('id', id);
 
-      return interaction.update({
+      return interaction.editReply({
         content:
 `🟡 CLAIMED by ${interaction.user.tag}
 
@@ -303,7 +269,7 @@ ${app.content}`,
 
       try { await member.send('Application approved.'); } catch {}
 
-      return interaction.update({
+      return interaction.editReply({
         content: `✅ APPROVED by ${interaction.user.tag}`,
         components: []
       });
@@ -317,7 +283,7 @@ ${app.content}`,
         .update({ status: 'rejected' })
         .eq('id', id);
 
-      return interaction.update({
+      return interaction.editReply({
         content: `❌ REJECTED by ${interaction.user.tag}`,
         components: []
       });
