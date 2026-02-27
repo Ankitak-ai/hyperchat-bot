@@ -16,12 +16,13 @@ const TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
+// ===== SUPABASE =====
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// ===== CLIENT =====
+// ===== DISCORD CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -29,7 +30,7 @@ const client = new Client({
   ]
 });
 
-// ===== COMMAND =====
+// ===== SLASH COMMAND =====
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
@@ -48,6 +49,7 @@ async function registerCommands() {
     Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
+  console.log('Slash commands registered.');
 }
 
 // ===== READY =====
@@ -55,15 +57,18 @@ client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ===== APPLY =====
+// ===== INTERACTIONS =====
 client.on('interactionCreate', async interaction => {
 
-  // ---------- APPLY ----------
+  // =========================================================
+  // APPLY COMMAND
+  // =========================================================
   if (interaction.isChatInputCommand() &&
       interaction.commandName === 'apply') {
 
     const details = interaction.options.getString('details');
 
+    // Save application
     const { data } = await supabase
       .from('creator_applications')
       .insert({
@@ -86,6 +91,14 @@ client.on('interactionCreate', async interaction => {
         ephemeral: true
       });
 
+    // ===== TEAM ROLE PING =====
+    const teamRole = interaction.guild.roles.cache.find(
+      r => r.name === 'Team'
+    );
+
+    const ping = teamRole ? `<@&${teamRole.id}>` : '';
+
+    // ===== ACTION BUTTONS =====
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`claim_${data.id}`)
@@ -103,9 +116,12 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
+    // ===== POST TO STAFF QUEUE =====
     const msg = await staffChannel.send({
       content:
-`📩 **New Creator Application**
+`${ping}
+
+📩 **New Creator Application**
 
 User: ${interaction.user.tag}
 ID: ${interaction.user.id}
@@ -117,18 +133,21 @@ Status: Pending`,
       components: [row]
     });
 
+    // Save message reference
     await supabase
       .from('creator_applications')
       .update({ message_id: msg.id })
       .eq('id', data.id);
 
     await interaction.reply({
-      content: 'Application submitted.',
+      content: 'Application submitted. Our team will review it shortly.',
       ephemeral: true
     });
   }
 
-  // ---------- BUTTON HANDLING ----------
+  // =========================================================
+  // BUTTON HANDLING
+  // =========================================================
   if (interaction.isButton()) {
 
     const [action, id] = interaction.customId.split('_');
@@ -145,12 +164,12 @@ Status: Pending`,
         ephemeral: true
       });
 
-    // ----- CLAIM -----
+    // ---------------- CLAIM ----------------
     if (action === 'claim') {
 
       if (app.assigned_to)
         return interaction.reply({
-          content: 'Already claimed.',
+          content: 'Already claimed by another reviewer.',
           ephemeral: true
         });
 
@@ -164,16 +183,17 @@ Status: Pending`,
 
       return interaction.update({
         content:
-`📩 Application — CLAIMED by ${interaction.user.tag}
+`🟡 **CLAIMED by ${interaction.user.tag}**
 
 User: ${app.username}
+
 Details:
 ${app.content}`,
         components: interaction.message.components
       });
     }
 
-    // ----- APPROVE -----
+    // ---------------- APPROVE ----------------
     if (action === 'approve') {
 
       if (app.status === 'approved')
@@ -185,10 +205,25 @@ ${app.content}`,
       const member =
         await interaction.guild.members.fetch(app.discord_id);
 
-      const role =
-        interaction.guild.roles.cache.find(r => r.name === 'Creator');
+      const creatorRole =
+        interaction.guild.roles.cache.find(
+          r => r.name === 'Creator'
+        );
 
-      if (role) await member.roles.add(role);
+      if (!creatorRole)
+        return interaction.reply({
+          content: 'Creator role not found.',
+          ephemeral: true
+        });
+
+      try {
+        await member.roles.add(creatorRole);
+      } catch {
+        return interaction.reply({
+          content: 'Cannot assign role. Check permissions.',
+          ephemeral: true
+        });
+      }
 
       await supabase
         .from('creator_applications')
@@ -203,15 +238,21 @@ ${app.content}`,
 
       return interaction.update({
         content:
-`✅ APPROVED by ${interaction.user.tag}
+`✅ **APPROVED by ${interaction.user.tag}**
 
 User: ${app.username}`,
         components: []
       });
     }
 
-    // ----- REJECT -----
+    // ---------------- REJECT ----------------
     if (action === 'reject') {
+
+      if (app.status === 'rejected')
+        return interaction.reply({
+          content: 'Already rejected.',
+          ephemeral: true
+        });
 
       await supabase
         .from('creator_applications')
@@ -229,7 +270,7 @@ User: ${app.username}`,
 
       return interaction.update({
         content:
-`❌ REJECTED by ${interaction.user.tag}
+`❌ **REJECTED by ${interaction.user.tag}**
 
 User: ${app.username}`,
         components: []
@@ -237,6 +278,10 @@ User: ${app.username}`,
     }
   }
 });
+
+// ===== GLOBAL ERROR HANDLING =====
+client.on('error', err => console.error(err));
+process.on('unhandledRejection', err => console.error(err));
 
 // ===== START =====
 (async () => {
