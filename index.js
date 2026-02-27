@@ -16,7 +16,7 @@ const GUILD_ID = process.env.GUILD_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// ===== SUPABASE CLIENT =====
+// ===== SUPABASE =====
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ===== DISCORD CLIENT =====
@@ -65,28 +65,40 @@ client.once('clientReady', async () => {
   }
 });
 
+// ===== AUTO REGISTER WHEN BOT JOINS SERVER =====
+client.on('guildCreate', async guild => {
+  try {
+    await supabase
+      .from('servers')
+      .upsert({
+        guild_id: guild.id,
+        guild_name: guild.name,
+        owner_id: guild.ownerId
+      });
+
+    console.log(`Registered new server: ${guild.name}`);
+  } catch (err) {
+    console.error('Guild registration failed:', err.message);
+  }
+});
+
 // ===== HANDLE SLASH COMMANDS =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  // Register / update server in database
   const guild = interaction.guild;
 
+  // Ensure server exists in DB (fallback)
   if (guild) {
-    try {
-      await supabase
-        .from('servers')
-        .upsert({
-          guild_id: guild.id,
-          guild_name: guild.name,
-          owner_id: guild.ownerId
-        });
-    } catch (err) {
-      console.error('Server upsert failed:', err.message);
-    }
+    await supabase
+      .from('servers')
+      .upsert({
+        guild_id: guild.id,
+        guild_name: guild.name,
+        owner_id: guild.ownerId
+      });
   }
 
-  // Command handling
   if (interaction.commandName === 'ping') {
     await interaction.reply('Pong');
   }
