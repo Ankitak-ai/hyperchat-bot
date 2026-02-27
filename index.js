@@ -91,14 +91,12 @@ client.on('interactionCreate', async interaction => {
         ephemeral: true
       });
 
-    // ===== TEAM ROLE PING =====
+    // ===== TEAM ROLE =====
     const teamRole = interaction.guild.roles.cache.find(
       r => r.name === 'Team'
     );
 
-    const ping = teamRole ? `<@&${teamRole.id}>` : '';
-
-    // ===== ACTION BUTTONS =====
+    // ===== BUTTONS =====
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`claim_${data.id}`)
@@ -116,10 +114,10 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Danger)
     );
 
-    // ===== POST TO STAFF QUEUE =====
+    // ===== POST TO STAFF QUEUE WITH RELIABLE PING =====
     const msg = await staffChannel.send({
-      content:
-`${ping}
+      content: teamRole
+        ? `<@&${teamRole.id}>
 
 📩 **New Creator Application**
 
@@ -129,18 +127,32 @@ ID: ${interaction.user.id}
 Details:
 ${details}
 
+Status: Pending`
+        : `📩 **New Creator Application**
+
+User: ${interaction.user.tag}
+ID: ${interaction.user.id}
+
+Details:
+${details}
+
 Status: Pending`,
+
+      allowedMentions: teamRole
+        ? { roles: [teamRole.id] }
+        : { parse: [] },
+
       components: [row]
     });
 
-    // Save message reference
+    // Save message ID
     await supabase
       .from('creator_applications')
       .update({ message_id: msg.id })
       .eq('id', data.id);
 
     await interaction.reply({
-      content: 'Application submitted. Our team will review it shortly.',
+      content: 'Application submitted. Our team will review shortly.',
       ephemeral: true
     });
   }
@@ -279,9 +291,9 @@ User: ${app.username}`,
   }
 });
 
-// ===== GLOBAL ERROR HANDLING =====
-client.on('error', err => console.error(err));
-process.on('unhandledRejection', err => console.error(err));
+// ===== ERROR HANDLING =====
+client.on('error', console.error);
+process.on('unhandledRejection', console.error);
 
 // ===== START =====
 (async () => {
