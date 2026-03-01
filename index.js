@@ -8,6 +8,7 @@ const {
   PermissionsBitField,
   SlashCommandBuilder
 } = require('discord.js');
+
 const { createClient } = require('@supabase/supabase-js');
 
 
@@ -26,36 +27,37 @@ const requiredEnv = [
   'CREATOR_PENDING_ROLE_ID'
 ];
 
-const missingEnv = requiredEnv.filter(k => !process.env[k]);
-if (missingEnv.length) {
-  console.error("Missing env:", missingEnv.join(', '));
+const missing = requiredEnv.filter(k => !process.env[k]);
+
+if (missing.length) {
+  console.error('Missing env:', missing.join(', '));
   process.exit(1);
 }
 
+
+// ============================================================
+// CONFIG
+// ============================================================
+
 const config = {
   token: process.env.BOT_TOKEN,
-  supabaseUrl: process.env.SUPABASE_URL,
-  supabaseKey: process.env.SUPABASE_SERVICE_KEY,
   guildId: process.env.GUILD_ID,
   applicationChannelId: process.env.APPLICATION_CHANNEL_ID,
   supportCategoryId: process.env.SUPPORT_CATEGORY_ID,
   creatorRoleId: process.env.CREATOR_ROLE_ID,
   creatorPendingRoleId: process.env.CREATOR_PENDING_ROLE_ID,
-  reviewerIds: (process.env.REVIEWER_IDS || '532448115861749770')
-    .split(',')
-    .map(x => x.trim())
-    .filter(Boolean),
-  alertRoleIds: (process.env.ALERT_ROLE_IDS || '532448115861749770')
-    .split(',')
-    .map(x => x.trim())
-    .filter(Boolean)
+  alertRoleIds: (process.env.ALERT_ROLE_IDS || '1476924303277822042').split(',').filter(Boolean),
+  reviewerIds: (process.env.REVIEWER_IDS || '532448115861749770').split(',').filter(Boolean)
 };
 
-const supabase = createClient(config.supabaseUrl, config.supabaseKey);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 
 // ============================================================
-// CLIENT
+// DISCORD CLIENT
 // ============================================================
 
 const client = new Client({
@@ -67,42 +69,40 @@ const client = new Client({
 
 
 // ============================================================
-// HELPERS
+// CONSTANTS
 // ============================================================
 
-function ensureReviewer(userId) {
-  return config.reviewerIds.includes(userId);
-}
-
-function safeName(name) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 70);
-}
-
-function sanitizeText(input) {
-  return input.replace(/@everyone|@here/g, '[blocked]');
-}
-
-async function safeDM(user, msg) {
-  try { await user.send(msg); } catch {}
-}
+const customIds = {
+  apply: 'apply_btn',
+  support: 'support_btn',
+  approve: 'approve_',
+  reject: 'reject_',
+  close: 'close_'
+};
 
 
 // ============================================================
-// COMMANDS
+// SLASH COMMANDS
 // ============================================================
 
 const commands = [
   new SlashCommandBuilder()
     .setName('apply')
-    .setDescription('Apply as creator')
+    .setDescription('Apply as HyperChat creator')
     .addStringOption(o =>
       o.setName('details')
+        .setDescription('Your content + goals')
         .setRequired(true)
-        .setDescription('About you')
+    ),
+
+  new SlashCommandBuilder()
+    .setName('activate')
+    .setDescription('Activate approved creator')
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageRoles)
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Creator')
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -112,32 +112,25 @@ const commands = [
 
 
 // ============================================================
+// HELPERS
+// ============================================================
+
+function sanitize(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 80);
+}
+
+async function safeDM(user, msg) {
+  try { await user.send(msg); } catch {}
+}
+
+
+// ============================================================
 // APPLICATION FLOW
 // ============================================================
 
-async function getActiveApplication(userId) {
-  const { data } = await supabase
-    .from('creator_applications')
-    .select('*')
-    .eq('discord_id', userId)
-    .in('status', ['pending','approved_pending','approved'])
-    .limit(1);
+async function handleApply(interaction) {
 
-  return data?.[0] || null;
-}
-
-async function createApplication(interaction) {
-  const details = sanitizeText(
-    interaction.options.getString('details')
-  );
-
-  const existing = await getActiveApplication(interaction.user.id);
-
-  if (existing) {
-    return interaction.editReply({
-      content: `Active application exists: ${existing.status}`
-    });
-  }
+  const details = interaction.options.getString('details', true);
 
   const { data, error } = await supabase
     .from('creator_applications')
@@ -152,102 +145,110 @@ async function createApplication(interaction) {
 
   if (error) throw error;
 
-  const channel = await interaction.guild.channels.fetch(
-    config.applicationChannelId
-  );
+  const guild = interaction.guild;
+  const channel = await guild.channels.fetch(config.applicationChannelId);
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`approve_${data.id}`)
+      .setCustomId(customIds.approve + data.id)
       .setLabel('Approve')
       .setStyle(ButtonStyle.Success),
 
     new ButtonBuilder()
-      .setCustomId(`reject_${data.id}`)
+      .setCustomId(customIds.reject + data.id)
       .setLabel('Reject')
       .setStyle(ButtonStyle.Danger)
   );
 
+  const mention = config.alertRoleIds.map(id => `<@&${id}>`).join(' ');
+
   await channel.send({
     content:
-      `${config.alertRoleIds.map(id => `<@&${id}>`).join(' ')}\n` +
-      `New application from <@${interaction.user.id}>\n${details}`,
-    components: [row],
-    allowedMentions: { roles: config.alertRoleIds }
+      `${mention}\nNew application from <@${interaction.user.id}>\n\n${details}`,
+    components: [row]
   });
 
   await interaction.editReply({
-    content: "Application submitted."
+    content: 'Application submitted.'
   });
 }
 
 
 // ============================================================
-// APPROVE / REJECT
+// APPROVAL BUTTON
 // ============================================================
 
 async function approveApplication(interaction, id) {
 
-  if (!ensureReviewer(interaction.user.id))
-    return interaction.editReply({ content: "Not authorized." });
-
   const { data } = await supabase
     .from('creator_applications')
-    .update({ status: 'approved_pending' })
+    .select('*')
     .eq('id', id)
-    .eq('status', 'pending')
-    .select()
     .single();
 
-  if (!data)
-    return interaction.editReply({ content: "Already processed." });
+  if (!data) {
+    await interaction.editReply({ content: 'Application not found.' });
+    return;
+  }
 
-  const member = await interaction.guild.members.fetch(
-    data.discord_id
-  );
+  const member = await interaction.guild.members.fetch(data.discord_id);
 
-  const role = await interaction.guild.roles.fetch(
-    config.creatorPendingRoleId
-  );
+  await member.roles.add(config.creatorPendingRoleId);
 
-  await member.roles.add(role);
+  await supabase
+    .from('creator_applications')
+    .update({ status: 'approved_pending' })
+    .eq('id', id);
 
   await safeDM(member.user,
-    "Your creator application was approved for onboarding."
-  );
+    'Your application was approved. Complete onboarding.');
 
   await interaction.editReply({
-    content: "Approved.",
+    content: `Approved <@${member.id}>`,
     components: []
   });
 }
 
 
+// ============================================================
+// REJECT BUTTON
+// ============================================================
+
 async function rejectApplication(interaction, id) {
 
-  if (!ensureReviewer(interaction.user.id))
-    return interaction.editReply({ content: "Not authorized." });
-
-  const { data } = await supabase
+  await supabase
     .from('creator_applications')
     .update({ status: 'rejected' })
-    .eq('id', id)
-    .eq('status', 'pending')
-    .select()
-    .single();
-
-  if (!data)
-    return interaction.editReply({ content: "Already processed." });
-
-  const user = await client.users.fetch(data.discord_id);
-
-  await safeDM(user,
-    "Your creator application was not approved."
-  );
+    .eq('id', id);
 
   await interaction.editReply({
-    content: "Rejected.",
+    content: 'Application rejected.',
     components: []
+  });
+}
+
+
+// ============================================================
+// ACTIVATE COMMAND
+// ============================================================
+
+async function activateCreator(interaction) {
+
+  const user = interaction.options.getUser('user', true);
+  const member = await interaction.guild.members.fetch(user.id);
+
+  await member.roles.remove(config.creatorPendingRoleId);
+  await member.roles.add(config.creatorRoleId);
+
+  await supabase
+    .from('creator_applications')
+    .update({ status: 'approved' })
+    .eq('discord_id', user.id);
+
+  await safeDM(user, 'You are now an active creator.');
+
+  await interaction.editReply({
+    content: `Activated ${user.tag}`
   });
 }
 
@@ -259,50 +260,41 @@ async function rejectApplication(interaction, id) {
 async function createTicket(interaction) {
 
   const guild = interaction.guild;
+  const category = await guild.channels.fetch(config.supportCategoryId);
 
-  const existing = guild.channels.cache.find(c =>
-    c.topic === `ticket:${interaction.user.id}`
+  const existing = guild.channels.cache.find(
+    c => c.topic === `ticket:${interaction.user.id}`
   );
 
-  if (existing)
-    return interaction.editReply({
-      content: `Existing ticket: ${existing}`
+  if (existing) {
+    await interaction.editReply({
+      content: `Ticket already exists: ${existing}`
     });
-
-  const category = await guild.channels.fetch(
-    config.supportCategoryId
-  );
+    return;
+  }
 
   const channel = await guild.channels.create({
-    name: `ticket-${safeName(interaction.user.username)}-${interaction.user.discriminator}`,
+    name: `ticket-${sanitize(interaction.user.username)}`,
     type: ChannelType.GuildText,
     parent: category.id,
     topic: `ticket:${interaction.user.id}`,
     permissionOverwrites: [
-      {
-        id: guild.roles.everyone.id,
-        deny: [PermissionsBitField.Flags.ViewChannel]
-      },
-      {
-        id: interaction.user.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages
-        ]
-      },
-      ...config.alertRoleIds.map(id => ({
-        id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages
-        ]
-      }))
+      { id: guild.roles.everyone, deny: ['ViewChannel'] },
+      { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages'] }
     ]
   });
 
-  await channel.send(
-    `<@${interaction.user.id}> Support will assist shortly.`
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(customIds.close + interaction.user.id)
+      .setLabel('Close')
+      .setStyle(ButtonStyle.Danger)
   );
+
+  await channel.send({
+    content: `Support ticket for <@${interaction.user.id}>`,
+    components: [row]
+  });
 
   await interaction.editReply({
     content: `Ticket created: ${channel}`
@@ -311,18 +303,14 @@ async function createTicket(interaction) {
 
 
 // ============================================================
-// EVENTS
+// EVENT HANDLERS
 // ============================================================
 
 client.once('ready', async () => {
 
   console.log(`Logged in as ${client.user.tag}`);
 
-  await client.application.commands.set(
-    commands,
-    config.guildId
-  );
-
+  await client.application.commands.set(commands, config.guildId);
 });
 
 
@@ -337,27 +325,37 @@ client.on('interactionCreate', async interaction => {
       await interaction.deferReply({ ephemeral: true });
 
       if (interaction.commandName === 'apply')
-        return createApplication(interaction);
+        return handleApply(interaction);
+
+      if (interaction.commandName === 'activate')
+        return activateCreator(interaction);
 
       if (interaction.commandName === 'support')
         return createTicket(interaction);
     }
 
+
     if (interaction.isButton()) {
 
       await interaction.deferReply({ ephemeral: true });
 
-      if (interaction.customId.startsWith('approve_'))
+      if (interaction.customId.startsWith(customIds.approve))
         return approveApplication(
           interaction,
-          interaction.customId.split('_')[1]
+          interaction.customId.replace(customIds.approve, '')
         );
 
-      if (interaction.customId.startsWith('reject_'))
+      if (interaction.customId.startsWith(customIds.reject))
         return rejectApplication(
           interaction,
-          interaction.customId.split('_')[1]
+          interaction.customId.replace(customIds.reject, '')
         );
+
+      if (interaction.customId.startsWith(customIds.close)) {
+
+        await interaction.channel.delete();
+        return;
+      }
     }
 
   } catch (err) {
@@ -365,13 +363,13 @@ client.on('interactionCreate', async interaction => {
     console.error(err);
 
     if (interaction.deferred)
-      await interaction.editReply({
-        content: "Error occurred."
-      });
-
+      await interaction.editReply({ content: 'Error occurred.' });
   }
-
 });
 
+
+// ============================================================
+// START BOT
+// ============================================================
 
 client.login(config.token);
