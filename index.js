@@ -140,21 +140,11 @@ client.on('interactionCreate', async (interaction) => {
           .setPlaceholder('Gaming, Lifestyle, Tech, etc.')
           .setRequired(true);
 
-        const whyJoin = new TextInputBuilder()
-          .setCustomId('why_join')
-          .setLabel('Why do you want to join HyperChat?')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Tell us why you want to be a HyperChat creator...')
-          .setMinLength(30)
-          .setMaxLength(500)
-          .setRequired(true);
-
         modal.addComponents(
           new ActionRowBuilder().addComponents(fullName),
           new ActionRowBuilder().addComponents(youtubeUrl),
           new ActionRowBuilder().addComponents(instagramHandle),
           new ActionRowBuilder().addComponents(contentNiche),
-          new ActionRowBuilder().addComponents(whyJoin),
         );
 
         return interaction.showModal(modal);
@@ -174,6 +164,41 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.customId.startsWith('close_ticket_')) {
         return ticketHandler.closeTicket(interaction);
       }
+
+      // Time slot selection
+      if (interaction.customId.startsWith('slot_')) {
+        const parts = interaction.customId.split('_');
+        const userId = parts[1];
+        const slot = parts[2];
+
+        const slotLabels = {
+          morning: 'Morning (9AM - 12PM)',
+          afternoon: 'Afternoon (12PM - 3PM)',
+          evening: 'Evening (3PM - 6PM)',
+          night: 'Night (6PM - 9PM)',
+        };
+
+        const schedulingChannel = await interaction.client.channels.fetch(
+          process.env.SCHEDULING_CHANNEL_ID
+        );
+
+        const embed = new EmbedBuilder()
+          .setTitle('📅 New Scheduling Request')
+          .setColor(0x57f287)
+          .addFields(
+            { name: 'User', value: `<@${userId}>`, inline: true },
+            { name: 'Preferred Time Slot', value: slotLabels[slot], inline: true },
+            { name: 'Available Days', value: 'Any day (Mon - Sun)', inline: true },
+          )
+          .setTimestamp();
+
+        await schedulingChannel.send({ embeds: [embed] });
+
+        await interaction.update({
+          content: `✅ Thanks! Your preferred slot **${slotLabels[slot]}** has been noted. Our team will reach out soon!`,
+          components: [],
+        });
+      }
     }
 
     // Modal submit
@@ -183,11 +208,10 @@ client.on('interactionCreate', async (interaction) => {
         const youtubeUrl = interaction.fields.getTextInputValue('youtube_url');
         const instagramHandle = interaction.fields.getTextInputValue('instagram_handle');
         const contentNiche = interaction.fields.getTextInputValue('content_niche');
-        const whyJoin = interaction.fields.getTextInputValue('why_join');
 
         interaction.options = {
           getString: () =>
-            `Full Name: ${fullName}\nYouTube: ${youtubeUrl}\nInstagram: ${instagramHandle}\nNiche: ${contentNiche}\nWhy Join: ${whyJoin}`,
+            `Full Name: ${fullName}\nYouTube: ${youtubeUrl}\nInstagram: ${instagramHandle}\nNiche: ${contentNiche}`,
         };
 
         return applyCommand(interaction);
