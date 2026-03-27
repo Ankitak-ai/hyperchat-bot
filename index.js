@@ -6,6 +6,9 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 require('dotenv').config();
 
@@ -25,51 +28,14 @@ const client = new Client({
 });
 
 // Bot ready
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // Send welcome message to new members
-client.on('guildMemberAdd', async (member) => {
-  try {
-    const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
-    if (!welcomeChannel) return;
-
-    const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('apply_creator')
-        .setLabel('Apply as Creator')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId('get_support')
-        .setLabel('Get Support')
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    await welcomeChannel.send({
-      content: `👋 Welcome <@${member.id}> to **HyperChat**!\n\n` +
-        `To get started, click **Apply as Creator** to apply.\n` +
-        `Need help? Click **Get Support** to open a ticket.`,
-      components: [row],
-    });
-  } catch (error) {
-    console.error('Error sending welcome message:', error);
-  }
-});
-
-  // Post welcome message in #welcome channel
-  const welcomeChannel = await client.channels.fetch(
-    process.env.APPLICATION_CHANNEL_ID
-  ).catch(() => null);
-
-  // We fetch the welcome channel separately
   const guild = client.guilds.cache.first();
   const channels = await guild.channels.fetch();
   const welcome = channels.find(c => c.name === 'welcome');
 
   if (welcome) {
-    // Check if welcome message already exists
     const messages = await welcome.messages.fetch({ limit: 10 });
     const alreadyPosted = messages.some(m => m.author.id === client.user.id);
 
@@ -99,7 +65,35 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
-// Handle slash commands
+// Welcome new members
+client.on('guildMemberAdd', async (member) => {
+  try {
+    const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
+    if (!welcomeChannel) return;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('apply_creator')
+        .setLabel('Apply as Creator')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('get_support')
+        .setLabel('Get Support')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await welcomeChannel.send({
+      content: `👋 Welcome <@${member.id}> to **HyperChat**!\n\n` +
+        `To get started, click **Apply as Creator** to apply.\n` +
+        `Need help? Click **Get Support** to open a ticket.`,
+      components: [row],
+    });
+  } catch (error) {
+    console.error('Error sending welcome message:', error);
+  }
+});
+
+// Handle interactions
 client.on('interactionCreate', async (interaction) => {
   try {
     // Slash commands
@@ -113,19 +107,28 @@ client.on('interactionCreate', async (interaction) => {
 
     // Button interactions
     if (interaction.isButton()) {
-      // Welcome buttons
       if (interaction.customId === 'apply_creator') {
-        return interaction.reply({
-          content: '📝 To apply, use the `/apply` command and tell us about yourself!\nExample: `/apply details: I am a content creator with 10k followers...`',
-          ephemeral: true,
-        });
+        const modal = new ModalBuilder()
+          .setCustomId('apply_modal')
+          .setTitle('Apply as Creator');
+
+        const detailsInput = new TextInputBuilder()
+          .setCustomId('apply_details')
+          .setLabel('Tell us about yourself')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('I am a content creator with 10k followers...')
+          .setMinLength(50)
+          .setMaxLength(1000)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(detailsInput));
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId === 'get_support') {
         return ticketHandler.createTicket(interaction);
       }
 
-      // Approval buttons
       if (
         interaction.customId.startsWith('approve_') ||
         interaction.customId.startsWith('reject_')
@@ -133,11 +136,21 @@ client.on('interactionCreate', async (interaction) => {
         return approvalHandler(interaction);
       }
 
-      // Close ticket button
       if (interaction.customId.startsWith('close_ticket_')) {
         return ticketHandler.closeTicket(interaction);
       }
     }
+
+    // Modal submit
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === 'apply_modal') {
+        interaction.options = {
+          getString: () => interaction.fields.getTextInputValue('apply_details')
+        };
+        return applyCommand(interaction);
+      }
+    }
+
   } catch (error) {
     console.error('Interaction error:', error);
     if (interaction.deferred || interaction.replied) {
@@ -147,7 +160,7 @@ client.on('interactionCreate', async (interaction) => {
     } else {
       await interaction.reply({
         content: '❌ Something went wrong. Please try again.',
-        ephemeral: true,
+        flags: 64,
       });
     }
   }
