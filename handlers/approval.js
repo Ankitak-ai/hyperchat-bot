@@ -1,5 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const supabase = require('../supabase');
+const { log } = require('../utils/logger');
 
 module.exports = async (interaction) => {
   const customId = interaction.customId;
@@ -34,9 +35,8 @@ module.exports = async (interaction) => {
       });
     }
 
-    const creatorPendingRole = interaction.guild.roles.cache.get(
-      process.env.CREATOR_PENDING_ROLE_ID
-    );
+    const creatorPendingRole = interaction.guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
+    const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
 
     if (!creatorPendingRole) {
       return interaction.editReply({
@@ -44,6 +44,10 @@ module.exports = async (interaction) => {
       });
     }
 
+    // Swap Guest → Creator Pending
+    if (guestRole && member.roles.cache.has(guestRole.id)) {
+      await member.roles.remove(guestRole);
+    }
     await member.roles.add(creatorPendingRole);
 
     await supabase
@@ -51,6 +55,7 @@ module.exports = async (interaction) => {
       .update({ status: 'approved_pending' })
       .eq('id', application.id);
 
+    // DM user with time slot buttons
     try {
       const timeRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -88,6 +93,9 @@ module.exports = async (interaction) => {
       components: [],
     });
 
+    // Log
+    await log(interaction.client, 'Application Approved', `**${application.username}** (${discordId}) was approved by **${interaction.user.username}**.\nAwaiting schedule.`, 0x57f287);
+
     return interaction.editReply({
       content: `✅ Successfully approved ${application.username}! They have been DM'd to pick a time slot.`,
     });
@@ -101,9 +109,15 @@ module.exports = async (interaction) => {
 
     const member = await interaction.guild.members.fetch(discordId).catch(() => null);
     if (member) {
+      // Remove Guest role on reject
+      const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+      if (guestRole && member.roles.cache.has(guestRole.id)) {
+        await member.roles.remove(guestRole);
+      }
+
       try {
         await member.user.send(
-          '❌ Unfortunately your HyperChat creator application has been rejected. You may apply again in the future.'
+          '❌ Unfortunately your HyperChat creator application has been rejected. You may apply again after 24 hours.'
         );
       } catch {
         console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
@@ -114,6 +128,9 @@ module.exports = async (interaction) => {
       content: `❌ Rejected by ${interaction.user.username}`,
       components: [],
     });
+
+    // Log
+    await log(interaction.client, 'Application Rejected', `**${application.username}** (${discordId}) was rejected by **${interaction.user.username}**.`, 0xff0000);
 
     return interaction.editReply({
       content: `✅ Application from ${application.username} has been rejected.`,
