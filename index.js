@@ -112,16 +112,51 @@ client.on('interactionCreate', async (interaction) => {
           .setCustomId('apply_modal')
           .setTitle('Apply as Creator');
 
-        const detailsInput = new TextInputBuilder()
-          .setCustomId('apply_details')
-          .setLabel('Tell us about yourself')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('I am a content creator with 10k followers...')
-          .setMinLength(50)
-          .setMaxLength(1000)
+        const fullName = new TextInputBuilder()
+          .setCustomId('full_name')
+          .setLabel('Full Name')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('John Doe')
           .setRequired(true);
 
-        modal.addComponents(new ActionRowBuilder().addComponents(detailsInput));
+        const youtubeUrl = new TextInputBuilder()
+          .setCustomId('youtube_url')
+          .setLabel('YouTube Channel URL')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('https://youtube.com/@yourchannel')
+          .setRequired(true);
+
+        const instagramHandle = new TextInputBuilder()
+          .setCustomId('instagram_handle')
+          .setLabel('Instagram Handle')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('@yourhandle')
+          .setRequired(true);
+
+        const contentNiche = new TextInputBuilder()
+          .setCustomId('content_niche')
+          .setLabel('Content Niche/Category')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Gaming, Lifestyle, Tech, etc.')
+          .setRequired(true);
+
+        const whyJoin = new TextInputBuilder()
+          .setCustomId('why_join')
+          .setLabel('Why do you want to join HyperChat?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Tell us why you want to be a HyperChat creator...')
+          .setMinLength(30)
+          .setMaxLength(500)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(fullName),
+          new ActionRowBuilder().addComponents(youtubeUrl),
+          new ActionRowBuilder().addComponents(instagramHandle),
+          new ActionRowBuilder().addComponents(contentNiche),
+          new ActionRowBuilder().addComponents(whyJoin),
+        );
+
         return interaction.showModal(modal);
       }
 
@@ -144,9 +179,17 @@ client.on('interactionCreate', async (interaction) => {
     // Modal submit
     if (interaction.isModalSubmit()) {
       if (interaction.customId === 'apply_modal') {
+        const fullName = interaction.fields.getTextInputValue('full_name');
+        const youtubeUrl = interaction.fields.getTextInputValue('youtube_url');
+        const instagramHandle = interaction.fields.getTextInputValue('instagram_handle');
+        const contentNiche = interaction.fields.getTextInputValue('content_niche');
+        const whyJoin = interaction.fields.getTextInputValue('why_join');
+
         interaction.options = {
-          getString: () => interaction.fields.getTextInputValue('apply_details')
+          getString: () =>
+            `Full Name: ${fullName}\nYouTube: ${youtubeUrl}\nInstagram: ${instagramHandle}\nNiche: ${contentNiche}\nWhy Join: ${whyJoin}`,
         };
+
         return applyCommand(interaction);
       }
     }
