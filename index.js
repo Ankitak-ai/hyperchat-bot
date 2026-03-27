@@ -34,10 +34,24 @@ client.on('guildMemberAdd', async (member) => {
     const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
     if (!welcomeChannel) return;
 
+    const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('apply_creator')
+        .setLabel('Apply as Creator')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('get_support')
+        .setLabel('Get Support')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
     await welcomeChannel.send({
       content: `👋 Welcome <@${member.id}> to **HyperChat**!\n\n` +
-        `To get started, click the **Apply as Creator** button above to apply.\n` +
-        `Need help? Click **Get Support** to open a ticket.`
+        `To get started, click **Apply as Creator** to apply.\n` +
+        `Need help? Click **Get Support** to open a ticket.`,
+      components: [row],
     });
   } catch (error) {
     console.error('Error sending welcome message:', error);
