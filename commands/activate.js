@@ -1,7 +1,8 @@
 const supabase = require('../supabase');
+const { log } = require('../utils/logger');
 
 module.exports = async (interaction) => {
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
 
   // Check if user has Admin role
   const member = interaction.member;
@@ -39,6 +40,8 @@ module.exports = async (interaction) => {
   // Fetch roles
   const creatorRole = interaction.guild.roles.cache.get(process.env.CREATOR_ROLE_ID);
   const creatorPendingRole = interaction.guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
+  const scheduledRole = interaction.guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
+  const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
 
   if (!creatorRole || !creatorPendingRole) {
     return interaction.editReply({
@@ -46,8 +49,16 @@ module.exports = async (interaction) => {
     });
   }
 
-  // Swap roles
-  await targetMember.roles.remove(creatorPendingRole);
+  // Remove all previous roles and assign Creator
+  if (creatorPendingRole && targetMember.roles.cache.has(creatorPendingRole.id)) {
+    await targetMember.roles.remove(creatorPendingRole);
+  }
+  if (scheduledRole && targetMember.roles.cache.has(scheduledRole.id)) {
+    await targetMember.roles.remove(scheduledRole);
+  }
+  if (guestRole && targetMember.roles.cache.has(guestRole.id)) {
+    await targetMember.roles.remove(guestRole);
+  }
   await targetMember.roles.add(creatorRole);
 
   // Update DB status to approved
@@ -59,11 +70,19 @@ module.exports = async (interaction) => {
   // DM the user
   try {
     await targetUser.send(
-      '🎉 Congratulations! Your HyperChat creator account has been fully activated. Welcome to the team!'
+      '🎉 Congratulations! Your HyperChat creator account has been fully activated!\n\n' +
+      'You now have access to:\n' +
+      '🎙️ **Creator Lounge** — voice channel for creators\n' +
+      '📢 **#announcements** — stay updated with HyperChat news\n' +
+      '🎫 **Support tickets** — get help anytime\n\n' +
+      'Welcome to the team!'
     );
   } catch {
     console.warn(`Could not DM user ${targetUser.username} — DMs may be disabled.`);
   }
+
+  // Log
+  await log(interaction.client, 'Creator Activated', `**${targetUser.username}** (${targetUser.id}) was fully activated as a Creator by **${interaction.user.username}**.`, 0x57f287);
 
   await interaction.editReply({
     content: `✅ Successfully activated ${targetUser.username} as a Creator!`,
