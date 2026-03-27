@@ -16,6 +16,7 @@ const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
+const { log } = require('./utils/logger');
 
 const client = new Client({
   intents: [
@@ -65,9 +66,19 @@ client.once('clientReady', async () => {
   }
 });
 
-// Welcome new members
+// Guest role on join + welcome message
 client.on('guildMemberAdd', async (member) => {
   try {
+    // Assign Guest role
+    const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+    if (guestRole) {
+      await member.roles.add(guestRole);
+    }
+
+    // Log
+    await log(client, 'Member Joined', `**${member.user.username}** (${member.id}) joined the server and was assigned Guest role.`, 0x57f287);
+
+    // Welcome message with buttons
     const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
     if (!welcomeChannel) return;
 
@@ -89,7 +100,16 @@ client.on('guildMemberAdd', async (member) => {
       components: [row],
     });
   } catch (error) {
-    console.error('Error sending welcome message:', error);
+    console.error('Error on member join:', error);
+  }
+});
+
+// Member leave log
+client.on('guildMemberRemove', async (member) => {
+  try {
+    await log(client, 'Member Left', `**${member.user.username}** (${member.id}) left the server.`, 0xff0000);
+  } catch (error) {
+    console.error('Error on member leave:', error);
   }
 });
 
@@ -178,9 +198,21 @@ client.on('interactionCreate', async (interaction) => {
           night: 'Night (6PM - 9PM)',
         };
 
-        const schedulingChannel = await interaction.client.channels.fetch(
-          process.env.SCHEDULING_CHANNEL_ID
-        );
+        // Assign Scheduled role
+        const guild = client.guilds.cache.first();
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (member) {
+          const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
+          const creatorPendingRole = guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
+
+          if (scheduledRole) await member.roles.add(scheduledRole);
+          if (creatorPendingRole && member.roles.cache.has(creatorPendingRole.id)) {
+            await member.roles.remove(creatorPendingRole);
+          }
+        }
+
+        // Post to #scheduling
+        const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
 
         const embed = new EmbedBuilder()
           .setTitle('📅 New Scheduling Request')
@@ -193,6 +225,9 @@ client.on('interactionCreate', async (interaction) => {
           .setTimestamp();
 
         await schedulingChannel.send({ embeds: [embed] });
+
+        // Log
+        await log(client, 'Call Scheduled', `**${member?.user.username || userId}** selected **${slotLabels[slot]}** for their onboarding call.`, 0x57f287);
 
         await interaction.update({
           content: `✅ Thanks! Your preferred slot **${slotLabels[slot]}** has been noted. Our team will reach out soon!`,
