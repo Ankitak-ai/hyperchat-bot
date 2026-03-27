@@ -28,6 +28,22 @@ const client = new Client({
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
+  // Send welcome message to new members
+client.on('guildMemberAdd', async (member) => {
+  try {
+    const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
+    if (!welcomeChannel) return;
+
+    await welcomeChannel.send({
+      content: `👋 Welcome <@${member.id}> to **HyperChat**!\n\n` +
+        `To get started, click the **Apply as Creator** button above to apply.\n` +
+        `Need help? Click **Get Support** to open a ticket.`
+    });
+  } catch (error) {
+    console.error('Error sending welcome message:', error);
+  }
+});
+
   // Post welcome message in #welcome channel
   const welcomeChannel = await client.channels.fetch(
     process.env.APPLICATION_CHANNEL_ID
