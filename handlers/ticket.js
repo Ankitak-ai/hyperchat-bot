@@ -1,228 +1,103 @@
-require('dotenv').config();
 const {
-  Client,
-  GatewayIntentBits,
-  Partials,
+  PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder,
 } = require('discord.js');
+const { log } = require('../utils/logger');
 
-const applyCommand = require('./commands/apply');
-const activateCommand = require('./commands/activate');
-const approvalHandler = require('./handlers/approval');
-const ticketHandler = require('./handlers/ticket');
-const { log } = require('./utils/logger');
+module.exports = {
+  async createTicket(interaction) {
+    await interaction.deferReply({ ephemeral: true });
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-  partials: [Partials.Channel],
-});
+    const username = interaction.user.username;
+    const userId = interaction.user.id;
+    const guild = interaction.guild;
 
-/* -------------------- ENV VALIDATION -------------------- */
+    const existing = guild.channels.cache.find(
+      (c) =>
+        c.name === `ticket-${username}` || c.name === `closed-${username}`
+    );
 
-const requiredEnv = [
-  'DISCORD_TOKEN',
-  'CLIENT_ID',
-  'GUILD_ID',
-  'APPLICATION_CHANNEL_ID',
-  'SUPPORT_CATEGORY_ID',
-  'CREATOR_ROLE_ID',
-  'CREATOR_PENDING_ROLE_ID',
-  'LOGS_CHANNEL_ID',
-  'ANNOUNCEMENTS_CHANNEL_ID',
-  'GUEST_ROLE_ID',
-  'SCHEDULED_ROLE_ID',
-  'SCHEDULING_CHANNEL_ID',
-];
-
-requiredEnv.forEach((key) => {
-  if (!process.env[key]) {
-    console.error(`Missing ENV: ${key}`);
-    process.exit(1);
-  }
-});
-
-/* -------------------- READY -------------------- */
-
-client.once('ready', async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-
-  const guild = await client.guilds.fetch(process.env.GUILD_ID);
-  const welcomeChannel = guild.channels.cache.find(
-    (c) => c.name === 'welcome'
-  );
-
-  if (!welcomeChannel) return;
-
-  const messages = await welcomeChannel.messages.fetch({ limit: 10 });
-  const exists = messages.find(
-    (m) => m.author.id === client.user.id && m.components.length > 0
-  );
-
-  if (exists) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle('🚀 Welcome to HyperChat')
-    .setDescription('Apply to become a creator or get support below.')
-    .setColor(0x5865f2);
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('start_apply')
-      .setLabel('Apply as Creator')
-      .setStyle(ButtonStyle.Primary),
-
-    new ButtonBuilder()
-      .setCustomId('create_ticket')
-      .setLabel('Get Support')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  await welcomeChannel.send({
-    embeds: [embed],
-    components: [row],
-  });
-});
-
-/* -------------------- INTERACTION ROUTER -------------------- */
-
-client.on('interactionCreate', async (interaction) => {
-  try {
-    /* ---------- SLASH COMMANDS ---------- */
-    if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'apply') {
-        return applyCommand(interaction);
-      }
-
-      if (interaction.commandName === 'activate') {
-        return activateCommand(interaction);
-      }
+    if (existing) {
+      return interaction.editReply({
+        content: '❌ You already have a ticket.',
+      });
     }
 
-    /* ---------- BUTTONS ---------- */
-    if (interaction.isButton()) {
-      const id = interaction.customId;
-
-      if (id === 'start_apply') {
-        return interaction.reply({
-          content: 'Use the `/apply` command to submit your application.',
-          ephemeral: true,
-        });
-      }
-
-      if (id === 'create_ticket') {
-        return ticketHandler.createTicket(interaction);
-      }
-
-      if (id.startsWith('close_ticket')) {
-        return ticketHandler.closeTicket(interaction);
-      }
-
-      if (id.startsWith('approve_') || id.startsWith('reject_')) {
-        return approvalHandler(interaction);
-      }
-
-      if (id.startsWith('slot_')) {
-        await interaction.deferReply({ ephemeral: true });
-
-        const [_, userId, slot] = id.split('_');
-
-        if (interaction.user.id !== userId) {
-          return interaction.editReply({
-            content: '❌ This button is not for you.',
-          });
-        }
-
-        const member = await interaction.guild.members.fetch(userId);
-
-        const scheduledRole = interaction.guild.roles.cache.get(
-          process.env.SCHEDULED_ROLE_ID
-        );
-
-        if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
-          await member.roles.add(scheduledRole);
-        }
-
-        const schedulingChannel = await interaction.client.channels.fetch(
-          process.env.SCHEDULING_CHANNEL_ID
-        );
-
-        const slotMap = {
-          morning: 'Morning (9AM - 12PM)',
-          afternoon: 'Afternoon (12PM - 3PM)',
-          evening: 'Evening (3PM - 6PM)',
-          night: 'Night (6PM - 9PM)',
-        };
-
-        await schedulingChannel.send({
-          embeds: [
-            {
-              title: '📅 New Scheduling Request',
-              color: 0x5865f2,
-              fields: [
-                { name: 'User', value: `<@${userId}>`, inline: true },
-                { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
-                { name: 'Available Days', value: 'Any day (Mon - Sun)' },
-              ],
-              timestamp: new Date(),
-            },
+    const channel = await guild.channels.create({
+      name: `ticket-${username}`,
+      parent: process.env.SUPPORT_CATEGORY_ID,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          deny: [PermissionFlagsBits.ViewChannel],
+        },
+        {
+          id: userId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
           ],
-        });
+        },
+        {
+          id: guild.members.me.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+      ],
+    });
 
-        await log(
-          interaction.client,
-          'Scheduling Selected',
-          `<@${userId}> selected ${slotMap[slot]}`,
-          0x00ff00
-        );
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('close_ticket')
+        .setLabel('Close Ticket')
+        .setStyle(ButtonStyle.Danger)
+    );
 
-        return interaction.editReply({
-          content: '✅ Your time slot has been recorded.',
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Interaction error:', error);
-
-    try {
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({
-          content: '❌ Something went wrong. Please try again.',
-        });
-      } else {
-        await interaction.reply({
-          content: '❌ Something went wrong. Please try again.',
-          ephemeral: true,
-        });
-      }
-    } catch {}
+    await channel.send({
+      content: `Support ticket for <@${userId}>`,
+      components: [row],
+    });
 
     await log(
-      client,
-      'Error',
-      `Interaction failed: ${error.message}`,
+      interaction.client,
+      'Ticket Created',
+      `<@${userId}> opened a ticket`,
+      0x5865f2
+    );
+
+    return interaction.editReply({
+      content: '✅ Ticket created.',
+    });
+  },
+
+  async closeTicket(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const channel = interaction.channel;
+
+    await channel.setName(`closed-${channel.name}`);
+    await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, {
+      ViewChannel: false,
+    });
+
+    await log(
+      interaction.client,
+      'Ticket Closed',
+      `Channel ${channel.name} closed`,
       0xff0000
     );
-  }
-});
 
-/* -------------------- AUTO ROLE ON JOIN -------------------- */
+    setTimeout(async () => {
+      await channel.delete().catch(console.error);
+    }, 1000 * 60 * 60 * 6);
 
-client.on('guildMemberAdd', async (member) => {
-  const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
-  if (guestRole) {
-    await member.roles.add(guestRole).catch(console.error);
-  }
-});
-
-/* -------------------- START -------------------- */
-
-client.login(process.env.DISCORD_TOKEN);
+    return interaction.editReply({
+      content: '✅ Ticket closed. It will be deleted in 6 hours.',
+    });
+  },
+};
