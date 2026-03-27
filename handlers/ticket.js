@@ -72,17 +72,30 @@ module.exports = {
 
   // Closes an existing support ticket channel
   async closeTicket(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     const channel = interaction.channel;
     const username = channel.name.replace('ticket-', '');
 
-    // Lock the channel for everyone
-    await channel.permissionOverwrites.edit(interaction.guild.roles.everyone.id, {
-      SendMessages: false,
-      ViewChannel: false,
-    });
+    // Remove all permission overwrites except bot
+    await channel.permissionOverwrites.set([
+      {
+        id: interaction.guild.roles.everyone.id,
+        deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+      },
+      {
+        id: interaction.guild.members.me.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels],
+      },
+    ]);
 
+    // Rename to closed-*
+    await channel.setName(`closed-${username}`);
+
+    await channel.send('🔒 This ticket has been closed.');
+
+    await interaction.editReply({ content: '✅ Ticket has been closed.' });
+  },
     // Rename to closed-*
     await channel.setName(`closed-${username}`);
 
