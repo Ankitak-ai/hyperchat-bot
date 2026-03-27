@@ -1,24 +1,40 @@
 const supabase = require('../supabase');
+const { log } = require('../utils/logger');
 
 module.exports = async (interaction) => {
   const discordId = interaction.user.id;
   const username = interaction.user.username;
   const details = interaction.options.getString('details');
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
 
-  // Check for existing active application
-  const { data: existing } = await supabase
+  // Rate limit — check if applied in last 24 hours
+  const { data: recent } = await supabase
     .from('creator_applications')
-    .select('id, status')
+    .select('id, created_at, status')
     .eq('discord_id', discordId)
-    .in('status', ['pending', 'approved_pending'])
+    .order('created_at', { ascending: false })
+    .limit(1)
     .single();
 
-  if (existing) {
-    return interaction.editReply({
-      content: '❌ You already have an active application. Please wait for it to be reviewed.',
-    });
+  if (recent) {
+    // Block if active application exists
+    if (['pending', 'approved_pending'].includes(recent.status)) {
+      return interaction.editReply({
+        content: '❌ You already have an active application. Please wait for it to be reviewed.',
+      });
+    }
+
+    // Block if rejected but applied within last 24 hours
+    if (recent.status === 'rejected') {
+      const hoursSince = (Date.now() - new Date(recent.created_at)) / (1000 * 60 * 60);
+      if (hoursSince < 24) {
+        const hoursLeft = Math.ceil(24 - hoursSince);
+        return interaction.editReply({
+          content: `❌ You can apply again in **${hoursLeft} hour(s)**. Please wait before reapplying.`,
+        });
+      }
+    }
   }
 
   // Insert new application
@@ -28,9 +44,16 @@ module.exports = async (interaction) => {
 
   if (error) {
     console.error('Supabase insert error:', error);
+    await log(interaction.client, 'Application Error', `**${username}** (${discordId}) failed to submit application.\nError: ${error.message}`, 0xff0000);
     return interaction.editReply({
       content: '❌ Something went wrong submitting your application. Please try again.',
     });
+  }
+
+  // Assign Guest role if not already assigned
+  const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+  if (guestRole && !interaction.member.roles.cache.has(guestRole.id)) {
+    await interaction.member.roles.add(guestRole).catch(console.error);
   }
 
   // Post to #applications channel
@@ -62,6 +85,9 @@ module.exports = async (interaction) => {
   );
 
   await applicationChannel.send({ embeds: [embed], components: [row] });
+
+  // Log the action
+  await log(interaction.client, 'New Application', `**${username}** (${discordId}) submitted a creator application.`, 0x5865f2);
 
   await interaction.editReply({
     content: '✅ Your application has been submitted! We will review it shortly.',
