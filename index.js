@@ -69,16 +69,13 @@ client.once('clientReady', async () => {
 // Guest role on join + welcome message
 client.on('guildMemberAdd', async (member) => {
   try {
-    // Assign Guest role
     const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
     if (guestRole) {
       await member.roles.add(guestRole);
     }
 
-    // Log
     await log(client, 'Member Joined', `**${member.user.username}** (${member.id}) joined the server and was assigned Guest role.`, 0x57f287);
 
-    // Welcome message with buttons
     const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
     if (!welcomeChannel) return;
 
@@ -185,7 +182,7 @@ client.on('interactionCreate', async (interaction) => {
         return ticketHandler.closeTicket(interaction);
       }
 
-      // Time slot selection
+      // Time slot selection — fetches guild explicitly since interaction comes from DM
       if (interaction.customId.startsWith('slot_')) {
         const parts = interaction.customId.split('_');
         const userId = parts[1];
@@ -198,20 +195,18 @@ client.on('interactionCreate', async (interaction) => {
           night: 'Night (6PM - 9PM)',
         };
 
-        // Assign Scheduled role
         const guild = client.guilds.cache.first();
         const member = await guild.members.fetch(userId).catch(() => null);
+
         if (member) {
           const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
           const creatorPendingRole = guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
-
-          if (scheduledRole) await member.roles.add(scheduledRole);
+          if (scheduledRole) await member.roles.add(scheduledRole).catch(console.error);
           if (creatorPendingRole && member.roles.cache.has(creatorPendingRole.id)) {
-            await member.roles.remove(creatorPendingRole);
+            await member.roles.remove(creatorPendingRole).catch(console.error);
           }
         }
 
-        // Post to #scheduling
         const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
 
         const embed = new EmbedBuilder()
@@ -226,7 +221,6 @@ client.on('interactionCreate', async (interaction) => {
 
         await schedulingChannel.send({ embeds: [embed] });
 
-        // Log
         await log(client, 'Call Scheduled', `**${member?.user.username || userId}** selected **${slotLabels[slot]}** for their onboarding call.`, 0x57f287);
 
         await interaction.update({
