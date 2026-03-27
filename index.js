@@ -247,17 +247,16 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-  } catch (error) {
+    } catch (error) {
     console.error('Interaction error:', error);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({
-        content: '❌ Something went wrong. Please try again.',
-      });
-    } else {
-      await interaction.reply({
-        content: '❌ Something went wrong. Please try again.',
-        flags: 64,
-      });
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content: '❌ Something went wrong. Please try again.' });
+      } else {
+        await interaction.reply({ content: '❌ Something went wrong. Please try again.', flags: 64 });
+      }
+    } catch {
+      // interaction already handled, ignore
     }
   }
 });
