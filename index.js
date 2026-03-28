@@ -7,9 +7,6 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
 } = require('discord.js');
 
 const applyCommand = require('./commands/apply');
@@ -89,59 +86,23 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.commandName === 'activate') return activateCommand(interaction);
     }
 
+    /* ---------- MODAL SUBMIT ---------- */
+    if (interaction.isModalSubmit()) {
+      return applyCommand(interaction);
+    }
+
     /* ---------- BUTTONS ---------- */
     if (interaction.isButton()) {
       const id = interaction.customId;
 
-      if (id === 'start_apply') {
-        const modal = new ModalBuilder()
-          .setCustomId('apply_modal')
-          .setTitle('Apply as Creator');
-
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('full_name')
-              .setLabel('Full Name')
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder('John Doe')
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('youtube_url')
-              .setLabel('YouTube Channel URL')
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder('https://youtube.com/@yourchannel')
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('instagram_handle')
-              .setLabel('Instagram Handle')
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder('@yourhandle')
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('content_niche')
-              .setLabel('Content Niche/Category')
-              .setStyle(TextInputStyle.Short)
-              .setPlaceholder('Gaming, Lifestyle, Tech, etc.')
-              .setRequired(true)
-          ),
-        );
-
-        return interaction.showModal(modal);
-      }
+      if (id === 'start_apply') return applyCommand(interaction);
 
       if (id === 'create_ticket') return ticketHandler.createTicket(interaction);
       if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
       if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
 
       if (id.startsWith('slot_')) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         const [_, userId, slot] = id.split('_');
 
@@ -182,28 +143,13 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    /* ---------- MODAL SUBMIT ---------- */
-    if (interaction.isModalSubmit() && interaction.customId === 'apply_modal') {
-      const fullName = interaction.fields.getTextInputValue('full_name');
-      const youtubeUrl = interaction.fields.getTextInputValue('youtube_url');
-      const instagramHandle = interaction.fields.getTextInputValue('instagram_handle');
-      const contentNiche = interaction.fields.getTextInputValue('content_niche');
-
-      interaction.options = {
-        getString: () =>
-          `Full Name: ${fullName}\nYouTube: ${youtubeUrl}\nInstagram: ${instagramHandle}\nNiche: ${contentNiche}`,
-      };
-
-      return applyCommand(interaction);
-    }
-
   } catch (error) {
     console.error('Interaction error:', error);
     try {
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content: '❌ Something went wrong. Please try again.' });
       } else {
-        await interaction.reply({ content: '❌ Something went wrong. Please try again.', ephemeral: true });
+        await interaction.reply({ content: '❌ Something went wrong. Please try again.', flags: 64 });
       }
     } catch {}
     await log(client, 'Error', `Interaction failed: ${error.message}`, 0xff0000);
