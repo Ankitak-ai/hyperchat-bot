@@ -27,8 +27,7 @@ function getBotUptime() {
 function getDaysSinceLaunch() {
   const now = new Date();
   const diff = now - LAUNCH_DATE;
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  return days;
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
 async function updateStatus(client) {
@@ -40,37 +39,49 @@ async function updateStatus(client) {
     const allOnline = dbStatus.online;
 
     const embed = new EmbedBuilder()
-      .setTitle('📊 HyperChat System Status')
-      .setDescription(allOnline ? '✅ All systems operational' : '⚠️ Some systems are experiencing issues')
-      .setColor(allOnline ? 0x57f287 : 0xff0000)
+      .setTitle('HyperChat System Status')
+      .setDescription(allOnline ? '🟢  All systems operational' : '🔴  Some systems are experiencing issues')
+      .setColor(allOnline ? 0x57f287 : 0xed4245)
       .addFields(
         {
-          name: '🤖 Bot',
-          value: '🟢 Online',
+          name: 'BOT',
+          value: '🟢  Online',
           inline: true,
         },
         {
-          name: '🗄️ Database',
-          value: dbStatus.online ? `🟢 Online (${dbStatus.ping}ms)` : '🔴 Offline',
+          name: 'DATABASE',
+          value: dbStatus.online
+            ? `🟢  Online · ${dbStatus.ping}ms`
+            : '🔴  Offline',
           inline: true,
         },
         {
-          name: '⏱️ Bot Uptime',
+          name: 'WEBSITE',
+          value: '⚪  Not configured',
+          inline: true,
+        },
+        {
+          name: 'BOT UPTIME',
           value: getBotUptime(),
           inline: true,
         },
         {
-          name: '🚀 HyperChat Launch',
-          value: `Dec 1, 2025 (${getDaysSinceLaunch()} days ago)`,
+          name: 'HYPERCHAT LAUNCHED',
+          value: `Dec 1, 2025 · ${getDaysSinceLaunch()} days ago`,
           inline: true,
         },
         {
-          name: '🔔 Incidents',
+          name: '\u200b',
+          value: '\u200b',
+          inline: true,
+        },
+        {
+          name: 'INCIDENTS',
           value: 'No active incidents',
           inline: false,
         },
         {
-          name: '🔧 Maintenance',
+          name: 'MAINTENANCE',
           value: 'No scheduled maintenance',
           inline: false,
         },
