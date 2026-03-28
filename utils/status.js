@@ -3,6 +3,8 @@ const supabase = require('../supabase');
 
 let statusMessageId = null;
 
+const LAUNCH_DATE = new Date('2025-12-01');
+
 async function getSupabaseStatus() {
   try {
     const start = Date.now();
@@ -14,12 +16,19 @@ async function getSupabaseStatus() {
   }
 }
 
-function getUptimeString() {
+function getBotUptime() {
   const uptime = process.uptime();
   const days = Math.floor(uptime / 86400);
   const hours = Math.floor((uptime % 86400) / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
   return `${days}d ${hours}h ${minutes}m`;
+}
+
+function getDaysSinceLaunch() {
+  const now = new Date();
+  const diff = now - LAUNCH_DATE;
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  return days;
 }
 
 async function updateStatus(client) {
@@ -28,10 +37,12 @@ async function updateStatus(client) {
     if (!statusChannel) return;
 
     const dbStatus = await getSupabaseStatus();
+    const allOnline = dbStatus.online;
 
     const embed = new EmbedBuilder()
       .setTitle('📊 HyperChat System Status')
-      .setColor(dbStatus.online ? 0x57f287 : 0xff0000)
+      .setDescription(allOnline ? '✅ All systems operational' : '⚠️ Some systems are experiencing issues')
+      .setColor(allOnline ? 0x57f287 : 0xff0000)
       .addFields(
         {
           name: '🤖 Bot',
@@ -44,8 +55,13 @@ async function updateStatus(client) {
           inline: true,
         },
         {
-          name: '⏱️ Uptime',
-          value: getUptimeString(),
+          name: '⏱️ Bot Uptime',
+          value: getBotUptime(),
+          inline: true,
+        },
+        {
+          name: '🚀 HyperChat Launch',
+          value: `Dec 1, 2025 (${getDaysSinceLaunch()} days ago)`,
           inline: true,
         },
         {
@@ -72,7 +88,6 @@ async function updateStatus(client) {
       }
     }
 
-    // Post new status message
     const messages = await statusChannel.messages.fetch({ limit: 10 });
     const botMessage = messages.find(m => m.author.id === client.user.id);
 
