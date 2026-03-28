@@ -52,7 +52,7 @@ requiredEnv.forEach((key) => {
 
 /* -------------------- READY -------------------- */
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
@@ -79,17 +79,13 @@ client.once('ready', async () => {
       .setCustomId('start_apply')
       .setLabel('Apply as Creator')
       .setStyle(ButtonStyle.Primary),
-
     new ButtonBuilder()
       .setCustomId('create_ticket')
       .setLabel('Get Support')
       .setStyle(ButtonStyle.Secondary)
   );
 
-  await welcomeChannel.send({
-    embeds: [embed],
-    components: [row],
-  });
+  await welcomeChannel.send({ embeds: [embed], components: [row] });
 });
 
 /* -------------------- INTERACTION ROUTER -------------------- */
@@ -98,13 +94,8 @@ client.on('interactionCreate', async (interaction) => {
   try {
     /* ---------- SLASH COMMANDS ---------- */
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'apply') {
-        return applyCommand(interaction);
-      }
-
-      if (interaction.commandName === 'activate') {
-        return activateCommand(interaction);
-      }
+      if (interaction.commandName === 'apply') return applyCommand(interaction);
+      if (interaction.commandName === 'activate') return activateCommand(interaction);
     }
 
     /* ---------- BUTTONS ---------- */
@@ -118,17 +109,9 @@ client.on('interactionCreate', async (interaction) => {
         });
       }
 
-      if (id === 'create_ticket') {
-        return ticketHandler.createTicket(interaction);
-      }
-
-      if (id.startsWith('close_ticket')) {
-        return ticketHandler.closeTicket(interaction);
-      }
-
-      if (id.startsWith('approve_') || id.startsWith('reject_')) {
-        return approvalHandler(interaction);
-      }
+      if (id === 'create_ticket') return ticketHandler.createTicket(interaction);
+      if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
+      if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
 
       if (id.startsWith('slot_')) {
         await interaction.deferReply({ ephemeral: true });
@@ -136,24 +119,16 @@ client.on('interactionCreate', async (interaction) => {
         const [_, userId, slot] = id.split('_');
 
         if (interaction.user.id !== userId) {
-          return interaction.editReply({
-            content: '❌ This button is not for you.',
-          });
+          return interaction.editReply({ content: '❌ This button is not for you.' });
         }
 
         const member = await interaction.guild.members.fetch(userId);
-
-        const scheduledRole = interaction.guild.roles.cache.get(
-          process.env.SCHEDULED_ROLE_ID
-        );
-
+        const scheduledRole = interaction.guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
         if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
           await member.roles.add(scheduledRole);
         }
 
-        const schedulingChannel = await interaction.client.channels.fetch(
-          process.env.SCHEDULING_CHANNEL_ID
-        );
+        const schedulingChannel = await interaction.client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
 
         const slotMap = {
           morning: 'Morning (9AM - 12PM)',
@@ -163,63 +138,68 @@ client.on('interactionCreate', async (interaction) => {
         };
 
         await schedulingChannel.send({
-          embeds: [
-            {
-              title: '📅 New Scheduling Request',
-              color: 0x5865f2,
-              fields: [
-                { name: 'User', value: `<@${userId}>`, inline: true },
-                { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
-                { name: 'Available Days', value: 'Any day (Mon - Sun)' },
-              ],
-              timestamp: new Date(),
-            },
-          ],
+          embeds: [{
+            title: '📅 New Scheduling Request',
+            color: 0x5865f2,
+            fields: [
+              { name: 'User', value: `<@${userId}>`, inline: true },
+              { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
+              { name: 'Available Days', value: 'Any day (Mon - Sun)' },
+            ],
+            timestamp: new Date(),
+          }],
         });
 
-        await log(
-          interaction.client,
-          'Scheduling Selected',
-          `<@${userId}> selected ${slotMap[slot]}`,
-          0x00ff00
-        );
-
-        return interaction.editReply({
-          content: '✅ Your time slot has been recorded.',
-        });
+        await log(interaction.client, 'Scheduling Selected', `<@${userId}> selected ${slotMap[slot]}`, 0x00ff00);
+        return interaction.editReply({ content: '✅ Your time slot has been recorded.' });
       }
     }
   } catch (error) {
     console.error('Interaction error:', error);
-
     try {
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({
-          content: '❌ Something went wrong. Please try again.',
-        });
+        await interaction.editReply({ content: '❌ Something went wrong. Please try again.' });
       } else {
-        await interaction.reply({
-          content: '❌ Something went wrong. Please try again.',
-          ephemeral: true,
-        });
+        await interaction.reply({ content: '❌ Something went wrong. Please try again.', ephemeral: true });
       }
     } catch {}
-
-    await log(
-      client,
-      'Error',
-      `Interaction failed: ${error.message}`,
-      0xff0000
-    );
+    await log(client, 'Error', `Interaction failed: ${error.message}`, 0xff0000);
   }
 });
 
-/* -------------------- AUTO ROLE ON JOIN -------------------- */
+/* -------------------- MEMBER JOIN -------------------- */
 
 client.on('guildMemberAdd', async (member) => {
-  const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
-  if (guestRole) {
-    await member.roles.add(guestRole).catch(console.error);
+  console.log(`guildMemberAdd fired: ${member.user.username}`);
+
+  try {
+    // Assign Guest role
+    const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+    if (guestRole) await member.roles.add(guestRole).catch(console.error);
+
+    // Welcome message in #welcome
+    const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
+    if (!welcomeChannel) return;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('start_apply')
+        .setLabel('Apply as Creator')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('create_ticket')
+        .setLabel('Get Support')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await welcomeChannel.send({
+      content: `👋 Welcome <@${member.id}> to **HyperChat**! Click below to get started.`,
+      components: [row],
+    });
+
+    await log(client, 'Member Joined', `<@${member.id}> joined the server.`, 0x57f287);
+  } catch (err) {
+    console.error('guildMemberAdd error:', err);
   }
 });
 
