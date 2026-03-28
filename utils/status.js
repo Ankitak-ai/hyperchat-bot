@@ -40,48 +40,42 @@ async function updateStatus(client) {
 
     const embed = new EmbedBuilder()
       .setTitle('HyperChat System Status')
-      .setDescription(allOnline ? '🟢  All systems operational' : '🔴  Some systems are experiencing issues')
+      .setDescription(
+        allOnline
+          ? '```\n✅  All systems operational\n```'
+          : '```\n⚠️  Some systems experiencing issues\n```'
+      )
       .setColor(allOnline ? 0x57f287 : 0xed4245)
       .addFields(
         {
-          name: 'BOT',
-          value: '🟢  Online',
+          name: '🤖 Bot Status',
+          value: '```\n🟢 Online\n```',
           inline: true,
         },
         {
-          name: 'DATABASE',
+          name: '🗄️ Database',
           value: dbStatus.online
-            ? `🟢  Online · ${dbStatus.ping}ms`
-            : '🔴  Offline',
+            ? `\`\`\`\n🟢 Online · ${dbStatus.ping}ms\n\`\`\``
+            : '```\n🔴 Offline\n```',
           inline: true,
         },
         {
-          name: 'WEBSITE',
-          value: '⚪  Not configured',
+          name: '⏱️ Bot Uptime',
+          value: `\`\`\`\n${getBotUptime()}\n\`\`\``,
           inline: true,
         },
         {
-          name: 'BOT UPTIME',
-          value: getBotUptime(),
+          name: '🚀 Since Launch',
+          value: `\`\`\`\n${getDaysSinceLaunch()} days\n\`\`\``,
           inline: true,
         },
         {
-          name: 'HYPERCHAT LAUNCHED',
-          value: `Dec 1, 2025 · ${getDaysSinceLaunch()} days ago`,
-          inline: true,
-        },
-        {
-          name: '\u200b',
-          value: '\u200b',
-          inline: true,
-        },
-        {
-          name: 'INCIDENTS',
+          name: '🔔 Incidents',
           value: 'No active incidents',
           inline: false,
         },
         {
-          name: 'MAINTENANCE',
+          name: '🔧 Maintenance',
           value: 'No scheduled maintenance',
           inline: false,
         },
