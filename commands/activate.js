@@ -4,68 +4,58 @@ const { log } = require('../utils/logger');
 module.exports = async (interaction) => {
   await interaction.deferReply({ flags: 64 });
 
-  // Check if user has Admin role
   const member = interaction.member;
   const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
 
   if (!member.roles.cache.has(adminRole.id)) {
-    return interaction.editReply({
-      content: '❌ You do not have permission to use this command.',
-    });
+    return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
   }
 
   const targetUser = interaction.options.getUser('user');
-  const targetMember = await interaction.guild.members.fetch(targetUser.id);
+  const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
   if (!targetMember) {
-    return interaction.editReply({
-      content: '❌ User not found in this server.',
-    });
+    return interaction.editReply({ content: '❌ User not found in this server.' });
   }
 
-  // Check application status in DB
   const { data: application, error } = await supabase
     .from('creator_applications')
-    .select('id, status')
+    .select('id, status, username')
     .eq('discord_id', targetUser.id)
     .eq('status', 'approved_pending')
     .single();
 
   if (error || !application) {
-    return interaction.editReply({
-      content: '❌ No approved pending application found for this user.',
-    });
+    return interaction.editReply({ content: '❌ No approved pending application found for this user.' });
   }
 
-  // Fetch roles
   const creatorRole = interaction.guild.roles.cache.get(process.env.CREATOR_ROLE_ID);
   const creatorPendingRole = interaction.guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
   const scheduledRole = interaction.guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
   const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
 
   if (!creatorRole || !creatorPendingRole) {
-    return interaction.editReply({
-      content: '❌ Could not find required roles. Please check role configuration.',
-    });
+    return interaction.editReply({ content: '❌ Could not find required roles.' });
   }
 
-  // Remove all previous roles and assign Creator
-  if (creatorPendingRole && targetMember.roles.cache.has(creatorPendingRole.id)) {
-    await targetMember.roles.remove(creatorPendingRole);
-  }
-  if (scheduledRole && targetMember.roles.cache.has(scheduledRole.id)) {
-    await targetMember.roles.remove(scheduledRole);
-  }
-  if (guestRole && targetMember.roles.cache.has(guestRole.id)) {
-    await targetMember.roles.remove(guestRole);
-  }
+  if (creatorPendingRole && targetMember.roles.cache.has(creatorPendingRole.id)) await targetMember.roles.remove(creatorPendingRole);
+  if (scheduledRole && targetMember.roles.cache.has(scheduledRole.id)) await targetMember.roles.remove(scheduledRole);
+  if (guestRole && targetMember.roles.cache.has(guestRole.id)) await targetMember.roles.remove(guestRole);
   await targetMember.roles.add(creatorRole);
 
-  // Update DB status to approved
   await supabase
     .from('creator_applications')
     .update({ status: 'approved' })
     .eq('id', application.id);
+
+  // Delete onboarding channel if exists
+  const onboardingChannel = interaction.guild.channels.cache.find(
+    c => c.name === `onboarding-${application.username}`
+  );
+  if (onboardingChannel) {
+    await onboardingChannel.send('✅ Onboarding complete! This channel will be deleted in 10 seconds.');
+    setTimeout(() => onboardingChannel.delete().catch(console.error), 10_000);
+  }
 
   // DM the user
   try {
@@ -81,10 +71,12 @@ module.exports = async (interaction) => {
     console.warn(`Could not DM user ${targetUser.username} — DMs may be disabled.`);
   }
 
-  // Log
-  await log(interaction.client, 'Creator Activated', `**${targetUser.username}** (${targetUser.id}) was fully activated as a Creator by **${interaction.user.username}**.`, 0x57f287);
+  await log(
+    interaction.client,
+    'Creator Activated',
+    `**${targetUser.username}** (${targetUser.id}) activated as Creator by **${interaction.user.username}**.`,
+    0x57f287
+  );
 
-  await interaction.editReply({
-    content: `✅ Successfully activated ${targetUser.username} as a Creator!`,
-  });
+  return interaction.editReply({ content: `✅ Successfully activated ${targetUser.username} as a Creator!` });
 };
