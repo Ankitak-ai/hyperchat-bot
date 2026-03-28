@@ -102,45 +102,51 @@ client.on('interactionCreate', async (interaction) => {
       if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
 
       if (id.startsWith('slot_')) {
-        await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: 64 });
 
-        const [_, userId, slot] = id.split('_');
+  const [_, userId, slot] = id.split('_');
 
-        if (interaction.user.id !== userId) {
-          return interaction.editReply({ content: '❌ This button is not for you.' });
-        }
+  if (interaction.user.id !== userId) {
+    return interaction.editReply({ content: '❌ This button is not for you.' });
+  }
 
-        const member = await interaction.guild.members.fetch(userId);
-        const scheduledRole = interaction.guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
-        if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
-          await member.roles.add(scheduledRole);
-        }
+  const guild = await client.guilds.fetch(process.env.GUILD_ID);
+  const member = await guild.members.fetch(userId).catch(() => null);
 
-        const schedulingChannel = await interaction.client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
+  if (!member) {
+    return interaction.editReply({ content: '❌ Could not find you in the server.' });
+  }
 
-        const slotMap = {
-          morning: 'Morning (9AM - 12PM)',
-          afternoon: 'Afternoon (12PM - 3PM)',
-          evening: 'Evening (3PM - 6PM)',
-          night: 'Night (6PM - 9PM)',
-        };
+  const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
+  if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
+    await member.roles.add(scheduledRole);
+  }
 
-        await schedulingChannel.send({
-          embeds: [{
-            title: '📅 New Scheduling Request',
-            color: 0x5865f2,
-            fields: [
-              { name: 'User', value: `<@${userId}>`, inline: true },
-              { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
-              { name: 'Available Days', value: 'Any day (Mon - Sun)' },
-            ],
-            timestamp: new Date(),
-          }],
-        });
+  const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
 
-        await log(interaction.client, 'Scheduling Selected', `<@${userId}> selected ${slotMap[slot]}`, 0x00ff00);
-        return interaction.editReply({ content: '✅ Your time slot has been recorded.' });
-      }
+  const slotMap = {
+    morning: 'Morning (9AM - 12PM)',
+    afternoon: 'Afternoon (12PM - 3PM)',
+    evening: 'Evening (3PM - 6PM)',
+    night: 'Night (6PM - 9PM)',
+  };
+
+  await schedulingChannel.send({
+    embeds: [{
+      title: '📅 New Scheduling Request',
+      color: 0x5865f2,
+      fields: [
+        { name: 'User', value: `<@${userId}>`, inline: true },
+        { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
+        { name: 'Available Days', value: 'Any day (Mon - Sun)' },
+      ],
+      timestamp: new Date(),
+    }],
+  });
+
+  await log(client, 'Scheduling Selected', `<@${userId}> selected ${slotMap[slot]}`, 0x00ff00);
+  return interaction.editReply({ content: '✅ Your time slot has been recorded.' });
+}
     }
 
   } catch (error) {
