@@ -2,8 +2,19 @@ const { EmbedBuilder } = require('discord.js');
 const supabase = require('../supabase');
 
 let statusMessageId = null;
-
 const LAUNCH_DATE = new Date('2025-12-01');
+
+const statusEmoji = {
+  operational: '🟢',
+  degraded: '🟡',
+  outage: '🔴',
+};
+
+const severityEmoji = {
+  minor: '🟡',
+  major: '🟠',
+  critical: '🔴',
+};
 
 async function getSupabaseStatus() {
   try {
@@ -14,6 +25,31 @@ async function getSupabaseStatus() {
   } catch {
     return { online: false, ping: null };
   }
+}
+
+async function getServiceStatuses() {
+  const { data } = await supabase
+    .from('system_status')
+    .select('service, status, message');
+  return data || [];
+}
+
+async function getActiveIncidents() {
+  const { data } = await supabase
+    .from('incidents')
+    .select('title, severity, status, created_at')
+    .neq('status', 'resolved')
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+async function getUpcomingMaintenance() {
+  const { data } = await supabase
+    .from('maintenance')
+    .select('title, scheduled_at, duration_minutes')
+    .gte('scheduled_at', new Date().toISOString())
+    .order('scheduled_at', { ascending: true });
+  return data || [];
 }
 
 function getBotUptime() {
@@ -35,51 +71,58 @@ async function updateStatus(client) {
     const statusChannel = await client.channels.fetch(process.env.STATUS_CHANNEL_ID);
     if (!statusChannel) return;
 
-    const dbStatus = await getSupabaseStatus();
-    const allOnline = dbStatus.online;
+    const [dbPing, services, incidents, maintenance] = await Promise.all([
+      getSupabaseStatus(),
+      getServiceStatuses(),
+      getActiveIncidents(),
+      getUpcomingMaintenance(),
+    ]);
+
+    const allOperational = services.every(s => s.status === 'operational') && dbPing.online;
+
+    // Build service fields
+    const fields = [];
+    for (const svc of services) {
+      const emoji = statusEmoji[svc.status] || '⚪';
+      let value = `\`${emoji} ${svc.status.charAt(0).toUpperCase() + svc.status.slice(1)}\``;
+      if (svc.message) value += `\n${svc.message}`;
+      if (svc.service === 'database' && dbPing.online) value = `\`🟢 Online · ${dbPing.ping}ms\``;
+      if (svc.service === 'database' && !dbPing.online) value = '`🔴 Offline`';
+
+      fields.push({
+        name: svc.service.charAt(0).toUpperCase() + svc.service.slice(1),
+        value,
+        inline: true,
+      });
+    }
+
+    // Uptime fields
+    fields.push(
+      { name: '⏱️ Bot Uptime', value: `\`${getBotUptime()}\``, inline: true },
+      { name: '🚀 Since Launch', value: `\`${getDaysSinceLaunch()} days\``, inline: true },
+      { name: '\u200b', value: '\u200b', inline: true },
+    );
+
+    // Incidents
+    const incidentValue = incidents.length > 0
+      ? incidents.map(i => `${severityEmoji[i.severity]} **${i.title}** — ${i.status}`).join('\n')
+      : 'No active incidents';
+    fields.push({ name: '🔔 Incidents', value: incidentValue, inline: false });
+
+    // Maintenance
+    const maintenanceValue = maintenance.length > 0
+      ? maintenance.map(m => {
+          const date = new Date(m.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+          return `🔧 **${m.title}** — ${date} IST${m.duration_minutes ? ` (${m.duration_minutes} mins)` : ''}`;
+        }).join('\n')
+      : 'No scheduled maintenance';
+    fields.push({ name: '🔧 Maintenance', value: maintenanceValue, inline: false });
 
     const embed = new EmbedBuilder()
       .setTitle('HyperChat System Status')
-      .setDescription(
-        allOnline
-          ? '```\n✅  All systems operational\n```'
-          : '```\n⚠️  Some systems experiencing issues\n```'
-      )
-      .setColor(allOnline ? 0x57f287 : 0xed4245)
-      .addFields(
-        {
-          name: '🤖 Bot Status',
-          value: '```\n🟢 Online\n```',
-          inline: true,
-        },
-        {
-          name: '🗄️ Database',
-          value: dbStatus.online
-            ? `\`\`\`\n🟢 Online · ${dbStatus.ping}ms\n\`\`\``
-            : '```\n🔴 Offline\n```',
-          inline: true,
-        },
-        {
-          name: '⏱️ Bot Uptime',
-          value: `\`\`\`\n${getBotUptime()}\n\`\`\``,
-          inline: true,
-        },
-        {
-          name: '🚀 Since Launch',
-          value: `\`\`\`\n${getDaysSinceLaunch()} days\n\`\`\``,
-          inline: true,
-        },
-        {
-          name: '🔔 Incidents',
-          value: 'No active incidents',
-          inline: false,
-        },
-        {
-          name: '🔧 Maintenance',
-          value: 'No scheduled maintenance',
-          inline: false,
-        },
-      )
+      .setDescription(allOperational ? '```\n✅  All systems operational\n```' : '```\n⚠️  Some systems experiencing issues\n```')
+      .setColor(allOperational ? 0x57f287 : 0xed4245)
+      .addFields(fields)
       .setFooter({ text: 'Last updated' })
       .setTimestamp();
 
