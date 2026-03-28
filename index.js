@@ -82,6 +82,9 @@ client.once('clientReady', async () => {
   await welcomeChannel.send({ embeds: [embed], components: [row] });
 });
 
+// Run cleanup every 6 hours
+setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
+
 /* -------------------- INTERACTION ROUTER -------------------- */
 
 client.on('interactionCreate', async (interaction) => {
