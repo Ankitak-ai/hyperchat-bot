@@ -1,5 +1,6 @@
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
+const { EmbedBuilder } = require('discord.js');
 
 module.exports = async (interaction) => {
   await interaction.deferReply({ flags: 64 });
@@ -48,13 +49,33 @@ module.exports = async (interaction) => {
     .update({ status: 'approved' })
     .eq('id', application.id);
 
-  // Delete onboarding channel if exists
-  const onboardingChannel = interaction.guild.channels.cache.find(
+  // Delete onboarding channels if exist
+  const onboardingText = interaction.guild.channels.cache.find(
     c => c.name === `onboarding-${application.username}`
   );
-  if (onboardingChannel) {
-    await onboardingChannel.send('✅ Onboarding complete! This channel will be deleted in 10 seconds.');
-    setTimeout(() => onboardingChannel.delete().catch(console.error), 10_000);
+  const onboardingVoice = interaction.guild.channels.cache.find(
+    c => c.name === `onboarding-voice-${application.username}`
+  );
+
+  if (onboardingText) {
+    await onboardingText.send('✅ Onboarding complete! This channel will be deleted in 10 seconds.');
+    setTimeout(() => onboardingText.delete().catch(console.error), 10_000);
+  }
+  if (onboardingVoice) {
+    setTimeout(() => onboardingVoice.delete().catch(console.error), 10_000);
+  }
+
+  // Post in #announcements
+  try {
+    const announcementsChannel = await interaction.client.channels.fetch(process.env.ANNOUNCEMENTS_CHANNEL_ID);
+    const embed = new EmbedBuilder()
+      .setTitle('🎉 New Creator!')
+      .setDescription(`Welcome <@${targetUser.id}> to the HyperChat creator family!`)
+      .setColor(0x57f287)
+      .setTimestamp();
+    await announcementsChannel.send({ embeds: [embed] });
+  } catch {
+    console.warn('Could not post to #announcements.');
   }
 
   // DM the user
@@ -64,6 +85,7 @@ module.exports = async (interaction) => {
       'You now have access to:\n' +
       '🎙️ **Creator Lounge** — voice channel for creators\n' +
       '📢 **#announcements** — stay updated with HyperChat news\n' +
+      '💬 **#creator-chat** — chat with other creators\n' +
       '🎫 **Support tickets** — get help anytime\n\n' +
       'Welcome to the team!'
     );
