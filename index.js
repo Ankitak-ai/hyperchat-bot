@@ -15,6 +15,7 @@ const {
 const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
 const { runCleanup } = require('./utils/cleanup');
+const { updateStatus } = require('./utils/status');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
