@@ -17,6 +17,7 @@ const activateCommand = require('./commands/activate');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
+const { checkRateLimit, formatTime } = require('./utils/rateLimit');
 
 const client = new Client({
   intents: [
@@ -43,7 +44,6 @@ const requiredEnv = [
   'ANNOUNCEMENTS_CHANNEL_ID',
   'GUEST_ROLE_ID',
   'SCHEDULED_ROLE_ID',
-  'SCHEDULING_CHANNEL_ID',
   'SCHEDULING_CHANNEL_ID',
   'ONBOARDING_CATEGORY_ID',
 ];
@@ -139,10 +139,31 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
       const id = interaction.customId;
 
-      if (id === 'start_apply') return applyCommand(interaction);
-      if (id === 'create_ticket') return ticketHandler.createTicket(interaction);
+      if (id === 'start_apply') {
+        const remaining = checkRateLimit(interaction.user.id, 'apply', 60 * 1000);
+        if (remaining) {
+          return interaction.reply({
+            content: `⏳ Please wait **${formatTime(remaining)}** before applying again.`,
+            flags: 64,
+          });
+        }
+        return applyCommand(interaction);
+      }
+
+      if (id === 'create_ticket') {
+        const remaining = checkRateLimit(interaction.user.id, 'ticket', 30 * 1000);
+        if (remaining) {
+          return interaction.reply({
+            content: `⏳ Please wait **${formatTime(remaining)}** before opening another ticket.`,
+            flags: 64,
+          });
+        }
+        return ticketHandler.createTicket(interaction);
+      }
+
       if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
       if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
+      if (id.startsWith('close_onboarding_')) return closeOnboarding(interaction);
 
       if (id.startsWith('schedule_')) {
         const userId = id.replace('schedule_', '');
@@ -188,6 +209,21 @@ client.on('interactionCreate', async (interaction) => {
     await log(client, 'Error', `Interaction failed: ${error.message}`, 0xff0000);
   }
 });
+
+/* -------------------- CLOSE ONBOARDING -------------------- */
+
+async function closeOnboarding(interaction) {
+  await interaction.deferReply({ flags: 64 });
+  const channel = interaction.channel;
+
+  await channel.send('✅ Onboarding channel closed. Deleting in 10 seconds...');
+  await log(interaction.client, 'Onboarding Closed', `${channel.name} closed by **${interaction.user.username}**.`, 0xffa500);
+  await interaction.editReply({ content: '✅ Onboarding channel will be deleted shortly.' });
+
+  setTimeout(async () => {
+    await channel.delete().catch(console.error);
+  }, 10_000);
+}
 
 /* -------------------- MEMBER JOIN -------------------- */
 
