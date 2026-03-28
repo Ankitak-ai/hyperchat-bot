@@ -7,6 +7,9 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 
 const applyCommand = require('./commands/apply');
@@ -56,17 +59,11 @@ client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
-  const welcomeChannel = guild.channels.cache.find(
-    (c) => c.name === 'welcome'
-  );
-
+  const welcomeChannel = guild.channels.cache.find((c) => c.name === 'welcome');
   if (!welcomeChannel) return;
 
   const messages = await welcomeChannel.messages.fetch({ limit: 10 });
-  const exists = messages.find(
-    (m) => m.author.id === client.user.id && m.components.length > 0
-  );
-
+  const exists = messages.find((m) => m.author.id === client.user.id && m.components.length > 0);
   if (exists) return;
 
   const embed = new EmbedBuilder()
@@ -75,14 +72,8 @@ client.once('clientReady', async () => {
     .setColor(0x5865f2);
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('start_apply')
-      .setLabel('Apply as Creator')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('create_ticket')
-      .setLabel('Get Support')
-      .setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
   );
 
   await welcomeChannel.send({ embeds: [embed], components: [row] });
@@ -103,10 +94,46 @@ client.on('interactionCreate', async (interaction) => {
       const id = interaction.customId;
 
       if (id === 'start_apply') {
-        return interaction.reply({
-          content: 'Use the `/apply` command to submit your application.',
-          ephemeral: true,
-        });
+        const modal = new ModalBuilder()
+          .setCustomId('apply_modal')
+          .setTitle('Apply as Creator');
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('full_name')
+              .setLabel('Full Name')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('John Doe')
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('youtube_url')
+              .setLabel('YouTube Channel URL')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('https://youtube.com/@yourchannel')
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('instagram_handle')
+              .setLabel('Instagram Handle')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('@yourhandle')
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('content_niche')
+              .setLabel('Content Niche/Category')
+              .setStyle(TextInputStyle.Short)
+              .setPlaceholder('Gaming, Lifestyle, Tech, etc.')
+              .setRequired(true)
+          ),
+        );
+
+        return interaction.showModal(modal);
       }
 
       if (id === 'create_ticket') return ticketHandler.createTicket(interaction);
@@ -154,6 +181,22 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.editReply({ content: '✅ Your time slot has been recorded.' });
       }
     }
+
+    /* ---------- MODAL SUBMIT ---------- */
+    if (interaction.isModalSubmit() && interaction.customId === 'apply_modal') {
+      const fullName = interaction.fields.getTextInputValue('full_name');
+      const youtubeUrl = interaction.fields.getTextInputValue('youtube_url');
+      const instagramHandle = interaction.fields.getTextInputValue('instagram_handle');
+      const contentNiche = interaction.fields.getTextInputValue('content_niche');
+
+      interaction.options = {
+        getString: () =>
+          `Full Name: ${fullName}\nYouTube: ${youtubeUrl}\nInstagram: ${instagramHandle}\nNiche: ${contentNiche}`,
+      };
+
+      return applyCommand(interaction);
+    }
+
   } catch (error) {
     console.error('Interaction error:', error);
     try {
@@ -171,25 +214,16 @@ client.on('interactionCreate', async (interaction) => {
 
 client.on('guildMemberAdd', async (member) => {
   console.log(`guildMemberAdd fired: ${member.user.username}`);
-
   try {
-    // Assign Guest role
     const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
     if (guestRole) await member.roles.add(guestRole).catch(console.error);
 
-    // Welcome message in #welcome
     const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
     if (!welcomeChannel) return;
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('start_apply')
-        .setLabel('Apply as Creator')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId('create_ticket')
-        .setLabel('Get Support')
-        .setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
     );
 
     await welcomeChannel.send({
