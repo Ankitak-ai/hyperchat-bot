@@ -99,7 +99,6 @@ client.on('interactionCreate', async (interaction) => {
         const userId = interaction.customId.replace('schedule_modal_', '');
         const date = interaction.fields.getTextInputValue('preferred_date');
         const time = interaction.fields.getTextInputValue('preferred_time');
-        const timezone = interaction.fields.getTextInputValue('timezone');
 
         await interaction.deferReply({ flags: 64 });
 
@@ -122,14 +121,13 @@ client.on('interactionCreate', async (interaction) => {
             fields: [
               { name: 'User', value: `<@${userId}>`, inline: true },
               { name: 'Date', value: date, inline: true },
-              { name: 'Time', value: time, inline: true },
-              { name: 'Timezone', value: timezone, inline: true },
+              { name: 'Time (IST)', value: time, inline: true },
             ],
             timestamp: new Date(),
           }],
         });
 
-        await log(client, 'Call Scheduled', `<@${userId}> requested a call on ${date} at ${time} (${timezone})`, 0x00ff00);
+        await log(client, 'Call Scheduled', `<@${userId}> requested a call on ${date} at ${time} IST`, 0x00ff00);
 
         return interaction.editReply({ content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.' });
       }
@@ -166,14 +164,7 @@ client.on('interactionCreate', async (interaction) => {
           new ActionRowBuilder().addComponents(
             new TextInputBuilder()
               .setCustomId('preferred_time')
-              .setLabel('Preferred Time (e.g. 3:00 PM)')
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('timezone')
-              .setLabel('Your Timezone (e.g. IST, GMT+5:30)')
+              .setLabel('Preferred Time IST (e.g. 3:00 PM)')
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
           ),
