@@ -14,12 +14,12 @@ const {
 
 const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
-const { runCleanup } = require('./utils/cleanup');
-const { updateStatus } = require('./utils/status');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
 const { checkRateLimit, formatTime } = require('./utils/rateLimit');
+const { runCleanup } = require('./utils/cleanup');
+const { updateStatus } = require('./utils/status');
 
 const client = new Client({
   intents: [
@@ -82,10 +82,14 @@ client.once('clientReady', async () => {
   );
 
   await welcomeChannel.send({ embeds: [embed], components: [row] });
-});
 
-// Run cleanup every 6 hours
-setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
+  // Initial status post + update every 5 minutes
+  await updateStatus(client);
+  setInterval(() => updateStatus(client), 5 * 60 * 1000);
+
+  // Run cleanup every 6 hours
+  setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
+});
 
 /* -------------------- INTERACTION ROUTER -------------------- */
 
