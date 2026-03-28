@@ -1,5 +1,13 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+} = require('discord.js');
 
 const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
@@ -46,6 +54,42 @@ requiredEnv.forEach((key) => {
 
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
+
+  const guild = await client.guilds.fetch(process.env.GUILD_ID);
+  const welcomeChannel = guild.channels.cache.find(
+    (c) => c.name === 'welcome'
+  );
+
+  if (!welcomeChannel) return;
+
+  const messages = await welcomeChannel.messages.fetch({ limit: 10 });
+  const exists = messages.find(
+    (m) => m.author.id === client.user.id && m.components.length > 0
+  );
+
+  if (exists) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🚀 Welcome to HyperChat')
+    .setDescription('Apply to become a creator or get support below.')
+    .setColor(0x5865f2);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('start_apply')
+      .setLabel('Apply as Creator')
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId('create_ticket')
+      .setLabel('Get Support')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  await welcomeChannel.send({
+    embeds: [embed],
+    components: [row],
+  });
 });
 
 /* -------------------- INTERACTION ROUTER -------------------- */
@@ -55,40 +99,41 @@ client.on('interactionCreate', async (interaction) => {
     /* ---------- SLASH COMMANDS ---------- */
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'apply') {
-        await applyCommand(interaction);
+        return applyCommand(interaction);
       }
 
       if (interaction.commandName === 'activate') {
-        await activateCommand(interaction);
+        return activateCommand(interaction);
       }
     }
 
     /* ---------- BUTTONS ---------- */
-    else if (interaction.isButton()) {
+    if (interaction.isButton()) {
       const id = interaction.customId;
 
-      // Approval flow
-      if (id.startsWith('approve_') || id.startsWith('reject_')) {
-        return approvalHandler(interaction);
+      if (id === 'start_apply') {
+        return interaction.reply({
+          content: 'Use the `/apply` command to submit your application.',
+          ephemeral: true,
+        });
       }
 
-      // Ticket open
       if (id === 'create_ticket') {
         return ticketHandler.createTicket(interaction);
       }
 
-      // Ticket close
       if (id.startsWith('close_ticket')) {
         return ticketHandler.closeTicket(interaction);
       }
 
-      // Scheduling buttons
+      if (id.startsWith('approve_') || id.startsWith('reject_')) {
+        return approvalHandler(interaction);
+      }
+
       if (id.startsWith('slot_')) {
         await interaction.deferReply({ ephemeral: true });
 
-        const parts = id.split('_');
-        const userId = parts[1];
-        const slot = parts[2];
+        const [_, userId, slot] = id.split('_');
 
         if (interaction.user.id !== userId) {
           return interaction.editReply({
@@ -158,9 +203,7 @@ client.on('interactionCreate', async (interaction) => {
           ephemeral: true,
         });
       }
-    } catch {
-      // ignore duplicate interaction errors completely
-    }
+    } catch {}
 
     await log(
       client,
