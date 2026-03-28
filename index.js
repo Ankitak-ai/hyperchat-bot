@@ -65,29 +65,29 @@ client.once('clientReady', async () => {
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   const welcomeChannel = guild.channels.cache.find((c) => c.name === 'welcome');
-  if (!welcomeChannel) return;
 
-  const messages = await welcomeChannel.messages.fetch({ limit: 10 });
-  const exists = messages.find((m) => m.author.id === client.user.id && m.components.length > 0);
-  if (exists) return;
+  if (welcomeChannel) {
+    const messages = await welcomeChannel.messages.fetch({ limit: 10 });
+    const exists = messages.find((m) => m.author.id === client.user.id && m.components.length > 0);
 
-  const embed = new EmbedBuilder()
-    .setTitle('🚀 Welcome to HyperChat')
-    .setDescription('Apply to become a creator or get support below.')
-    .setColor(0x5865f2);
+    if (!exists) {
+      const embed = new EmbedBuilder()
+        .setTitle('🚀 Welcome to HyperChat')
+        .setDescription('Apply to become a creator or get support below.')
+        .setColor(0x5865f2);
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
-  );
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
+      );
 
-  await welcomeChannel.send({ embeds: [embed], components: [row] });
+      await welcomeChannel.send({ embeds: [embed], components: [row] });
+    }
+  }
 
-  // Initial status post + update every 5 minutes
+  // Status + cleanup always run regardless
   await updateStatus(client);
   setInterval(() => updateStatus(client), 5 * 60 * 1000);
-
-  // Run cleanup every 6 hours
   setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
 });
 
