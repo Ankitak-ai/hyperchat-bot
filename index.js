@@ -7,6 +7,9 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 
 const applyCommand = require('./commands/apply');
@@ -88,7 +91,48 @@ client.on('interactionCreate', async (interaction) => {
 
     /* ---------- MODAL SUBMIT ---------- */
     if (interaction.isModalSubmit()) {
-      return applyCommand(interaction);
+      if (interaction.customId === 'apply_modal') {
+        return applyCommand(interaction);
+      }
+
+      if (interaction.customId.startsWith('schedule_modal_')) {
+        const userId = interaction.customId.replace('schedule_modal_', '');
+        const date = interaction.fields.getTextInputValue('preferred_date');
+        const time = interaction.fields.getTextInputValue('preferred_time');
+        const timezone = interaction.fields.getTextInputValue('timezone');
+
+        await interaction.deferReply({ flags: 64 });
+
+        const guild = await client.guilds.fetch(process.env.GUILD_ID);
+        const member = await guild.members.fetch(userId).catch(() => null);
+
+        if (member) {
+          const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
+          if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
+            await member.roles.add(scheduledRole);
+          }
+        }
+
+        const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
+
+        await schedulingChannel.send({
+          embeds: [{
+            title: '📅 New Onboarding Call Request',
+            color: 0x5865f2,
+            fields: [
+              { name: 'User', value: `<@${userId}>`, inline: true },
+              { name: 'Date', value: date, inline: true },
+              { name: 'Time', value: time, inline: true },
+              { name: 'Timezone', value: timezone, inline: true },
+            ],
+            timestamp: new Date(),
+          }],
+        });
+
+        await log(client, 'Call Scheduled', `<@${userId}> requested a call on ${date} at ${time} (${timezone})`, 0x00ff00);
+
+        return interaction.editReply({ content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.' });
+      }
     }
 
     /* ---------- BUTTONS ---------- */
@@ -96,57 +140,47 @@ client.on('interactionCreate', async (interaction) => {
       const id = interaction.customId;
 
       if (id === 'start_apply') return applyCommand(interaction);
-
       if (id === 'create_ticket') return ticketHandler.createTicket(interaction);
       if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
       if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
 
-      if (id.startsWith('slot_')) {
-  await interaction.deferReply({ flags: 64 });
+      if (id.startsWith('schedule_')) {
+        const userId = id.replace('schedule_', '');
 
-  const [_, userId, slot] = id.split('_');
+        if (interaction.user.id !== userId) {
+          return interaction.reply({ content: '❌ This button is not for you.', flags: 64 });
+        }
 
-  if (interaction.user.id !== userId) {
-    return interaction.editReply({ content: '❌ This button is not for you.' });
-  }
+        const modal = new ModalBuilder()
+          .setCustomId(`schedule_modal_${userId}`)
+          .setTitle('Schedule Your Onboarding Call');
 
-  const guild = await client.guilds.fetch(process.env.GUILD_ID);
-  const member = await guild.members.fetch(userId).catch(() => null);
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('preferred_date')
+              .setLabel('Preferred Date (e.g. 28 March 2026)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('preferred_time')
+              .setLabel('Preferred Time (e.g. 3:00 PM)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('timezone')
+              .setLabel('Your Timezone (e.g. IST, GMT+5:30)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+        );
 
-  if (!member) {
-    return interaction.editReply({ content: '❌ Could not find you in the server.' });
-  }
-
-  const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
-  if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
-    await member.roles.add(scheduledRole);
-  }
-
-  const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
-
-  const slotMap = {
-    morning: 'Morning (9AM - 12PM)',
-    afternoon: 'Afternoon (12PM - 3PM)',
-    evening: 'Evening (3PM - 6PM)',
-    night: 'Night (6PM - 9PM)',
-  };
-
-  await schedulingChannel.send({
-    embeds: [{
-      title: '📅 New Scheduling Request',
-      color: 0x5865f2,
-      fields: [
-        { name: 'User', value: `<@${userId}>`, inline: true },
-        { name: 'Preferred Time Slot', value: slotMap[slot], inline: true },
-        { name: 'Available Days', value: 'Any day (Mon - Sun)' },
-      ],
-      timestamp: new Date(),
-    }],
-  });
-
-  await log(client, 'Scheduling Selected', `<@${userId}> selected ${slotMap[slot]}`, 0x00ff00);
-  return interaction.editReply({ content: '✅ Your time slot has been recorded.' });
-}
+        return interaction.showModal(modal);
+      }
     }
 
   } catch (error) {
