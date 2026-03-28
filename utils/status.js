@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const supabase = require('../supabase');
+const https = require('https');
 
 let statusMessageId = null;
 const LAUNCH_DATE = new Date('2025-12-01');
@@ -16,6 +17,15 @@ const severityEmoji = {
   critical: '🔴',
 };
 
+const serviceLabels = {
+  bot: '🤖 Bot',
+  database: '🗄️ Database',
+  website: '🌐 Website',
+  tts_audio: '🔊 TTS / Audio',
+  onscreen_alerts: '📺 Onscreen Alerts',
+  razorpay: '💳 Razorpay Payments',
+};
+
 async function getSupabaseStatus() {
   try {
     const start = Date.now();
@@ -25,6 +35,21 @@ async function getSupabaseStatus() {
   } catch {
     return { online: false, ping: null };
   }
+}
+
+async function pingWebsite(url) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const req = https.get(url, (res) => {
+      const ping = Date.now() - start;
+      resolve({ online: res.statusCode < 500, ping });
+    });
+    req.on('error', () => resolve({ online: false, ping: null }));
+    req.setTimeout(5000, () => {
+      req.destroy();
+      resolve({ online: false, ping: null });
+    });
+  });
 }
 
 async function getServiceStatuses() {
@@ -71,29 +96,37 @@ async function updateStatus(client) {
     const statusChannel = await client.channels.fetch(process.env.STATUS_CHANNEL_ID);
     if (!statusChannel) return;
 
-    const [dbPing, services, incidents, maintenance] = await Promise.all([
+    const [dbPing, websitePing, services, incidents, maintenance] = await Promise.all([
       getSupabaseStatus(),
+      pingWebsite('https://hyperchat.space/'),
       getServiceStatuses(),
       getActiveIncidents(),
       getUpcomingMaintenance(),
     ]);
 
-    const allOperational = services.every(s => s.status === 'operational') && dbPing.online;
+    const allOperational = services.every(s => s.status === 'operational') && dbPing.online && websitePing.online;
 
-    // Build service fields
     const fields = [];
+
     for (const svc of services) {
       const emoji = statusEmoji[svc.status] || '⚪';
+      const label = serviceLabels[svc.service] || svc.service;
       let value = `\`${emoji} ${svc.status.charAt(0).toUpperCase() + svc.status.slice(1)}\``;
       if (svc.message) value += `\n${svc.message}`;
-      if (svc.service === 'database' && dbPing.online) value = `\`🟢 Online · ${dbPing.ping}ms\``;
-      if (svc.service === 'database' && !dbPing.online) value = '`🔴 Offline`';
 
-      fields.push({
-        name: svc.service.charAt(0).toUpperCase() + svc.service.slice(1),
-        value,
-        inline: true,
-      });
+      // Override with live ping for database
+      if (svc.service === 'database') {
+        value = dbPing.online ? `\`🟢 Online · ${dbPing.ping}ms\`` : '`🔴 Offline`';
+      }
+
+      // Override with live ping for website
+      if (svc.service === 'website') {
+        value = websitePing.online
+          ? `\`🟢 Online · ${websitePing.ping}ms\``
+          : '`🔴 Offline`';
+      }
+
+      fields.push({ name: label, value, inline: true });
     }
 
     // Uptime fields
@@ -120,7 +153,9 @@ async function updateStatus(client) {
 
     const embed = new EmbedBuilder()
       .setTitle('HyperChat System Status')
-      .setDescription(allOperational ? '```\n✅  All systems operational\n```' : '```\n⚠️  Some systems experiencing issues\n```')
+      .setDescription(allOperational
+        ? '```\n✅  All systems operational\n```'
+        : '```\n⚠️  Some systems experiencing issues\n```')
       .setColor(allOperational ? 0x57f287 : 0xed4245)
       .addFields(fields)
       .setFooter({ text: 'Last updated' })
