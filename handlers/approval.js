@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
 
@@ -50,9 +50,9 @@ module.exports = async (interaction) => {
       .update({ status: 'approved_pending' })
       .eq('id', application.id);
 
-    // DM user with schedule button
+    // 1. DM user with schedule button
     try {
-      const row = new ActionRowBuilder().addComponents(
+      const scheduleRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`schedule_${discordId}`)
           .setLabel('Schedule Onboarding Call')
@@ -62,22 +62,85 @@ module.exports = async (interaction) => {
       await member.user.send({
         content:
           '🎉 Congratulations! Your HyperChat creator application has been approved!\n\n' +
-          'To complete your onboarding, please click the button below to schedule your onboarding call.',
-        components: [row],
+          'To complete your onboarding, please schedule a call with our team by clicking the button below.',
+        components: [scheduleRow],
       });
     } catch {
       console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
     }
 
+    // 2. Create onboarding channel
+    const onboardingChannel = await interaction.guild.channels.create({
+      name: `onboarding-${application.username}`,
+      parent: process.env.ONBOARDING_CATEGORY_ID,
+      permissionOverwrites: [
+        {
+          id: interaction.guild.roles.everyone.id,
+          deny: [PermissionFlagsBits.ViewChannel],
+        },
+        {
+          id: discordId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        },
+        {
+          id: interaction.guild.members.me.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ManageChannels,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        },
+      ],
+    });
+
+    const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
+    const reviewerRole = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
+    if (adminRole) {
+      await onboardingChannel.permissionOverwrites.create(adminRole, {
+        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+      });
+    }
+    if (reviewerRole) {
+      await onboardingChannel.permissionOverwrites.create(reviewerRole, {
+        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+      });
+    }
+
+    const closeRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`close_onboarding_${discordId}`)
+        .setLabel('Close Onboarding')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    await onboardingChannel.send({
+      content:
+        `👋 Welcome <@${discordId}>! Your application has been approved.\n\n` +
+        `This is your onboarding channel. Our team will use this space to guide you through the setup after your scheduled call.\n\n` +
+        `**Check your DMs** to schedule your onboarding call.\n\n` +
+        `An admin will close this channel once onboarding is complete.`,
+      components: [closeRow],
+    });
+
     await interaction.message.edit({
-      content: `✅ Approved by ${interaction.user.username} — awaiting scheduling`,
+      content: `✅ Approved by ${interaction.user.username} — DM sent + onboarding channel created`,
       components: [],
     });
 
-    await log(interaction.client, 'Application Approved', `**${application.username}** (${discordId}) approved by **${interaction.user.username}**.`, 0x57f287);
+    await log(
+      interaction.client,
+      'Application Approved',
+      `**${application.username}** (${discordId}) approved by **${interaction.user.username}**.\nOnboarding channel: <#${onboardingChannel.id}>`,
+      0x57f287
+    );
 
     return interaction.editReply({
-      content: `✅ Successfully approved ${application.username}! They have been DM'd to schedule a call.`,
+      content: `✅ Approved ${application.username}! DM sent for scheduling + onboarding channel created: <#${onboardingChannel.id}>`,
     });
   }
 
@@ -105,7 +168,12 @@ module.exports = async (interaction) => {
       components: [],
     });
 
-    await log(interaction.client, 'Application Rejected', `**${application.username}** (${discordId}) rejected by **${interaction.user.username}**.`, 0xff0000);
+    await log(
+      interaction.client,
+      'Application Rejected',
+      `**${application.username}** (${discordId}) rejected by **${interaction.user.username}**.`,
+      0xff0000
+    );
 
     return interaction.editReply({
       content: `✅ Application from ${application.username} has been rejected.`,
