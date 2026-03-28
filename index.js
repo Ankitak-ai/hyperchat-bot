@@ -47,6 +47,7 @@ const requiredEnv = [
   'SCHEDULED_ROLE_ID',
   'SCHEDULING_CHANNEL_ID',
   'ONBOARDING_CATEGORY_ID',
+  'STATUS_CHANNEL_ID',
 ];
 
 requiredEnv.forEach((key) => {
