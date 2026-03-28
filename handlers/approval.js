@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionFlagsBits, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType } = require('discord.js');
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
 
@@ -35,6 +35,8 @@ module.exports = async (interaction) => {
 
     const creatorPendingRole = interaction.guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
     const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+    const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
+    const reviewerRole = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
 
     if (!creatorPendingRole) {
       return interaction.editReply({ content: '❌ Creator Pending role not found.' });
@@ -69,9 +71,10 @@ module.exports = async (interaction) => {
       console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
     }
 
-    // 2. Create onboarding channel
+    // 2. Create onboarding text channel
     const onboardingChannel = await interaction.guild.channels.create({
       name: `onboarding-${application.username}`,
+      type: ChannelType.GuildText,
       parent: process.env.ONBOARDING_CATEGORY_ID,
       permissionOverwrites: [
         {
@@ -98,8 +101,6 @@ module.exports = async (interaction) => {
       ],
     });
 
-    const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
-    const reviewerRole = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
     if (adminRole) {
       await onboardingChannel.permissionOverwrites.create(adminRole, {
         ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
@@ -111,6 +112,47 @@ module.exports = async (interaction) => {
       });
     }
 
+    // 3. Create onboarding voice channel
+    const onboardingVoice = await interaction.guild.channels.create({
+      name: `onboarding-voice-${application.username}`,
+      type: ChannelType.GuildVoice,
+      parent: process.env.ONBOARDING_CATEGORY_ID,
+      permissionOverwrites: [
+        {
+          id: interaction.guild.roles.everyone.id,
+          deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+        },
+        {
+          id: discordId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.Connect,
+            PermissionFlagsBits.Speak,
+          ],
+        },
+        {
+          id: interaction.guild.members.me.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.Connect,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+      ],
+    });
+
+    if (adminRole) {
+      await onboardingVoice.permissionOverwrites.create(adminRole, {
+        ViewChannel: true, Connect: true, Speak: true,
+      });
+    }
+    if (reviewerRole) {
+      await onboardingVoice.permissionOverwrites.create(reviewerRole, {
+        ViewChannel: true, Connect: true, Speak: true,
+      });
+    }
+
+    // 4. Send welcome message in onboarding channel
     const closeRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`close_onboarding_${discordId}`)
@@ -123,12 +165,13 @@ module.exports = async (interaction) => {
         `👋 Welcome <@${discordId}>! Your application has been approved.\n\n` +
         `This is your onboarding channel. Our team will use this space to guide you through the setup after your scheduled call.\n\n` +
         `**Check your DMs** to schedule your onboarding call.\n\n` +
+        `You also have access to the voice channel **onboarding-voice-${application.username}** above for your call.\n\n` +
         `An admin will close this channel once onboarding is complete.`,
       components: [closeRow],
     });
 
     await interaction.message.edit({
-      content: `✅ Approved by ${interaction.user.username} — DM sent + onboarding channel created`,
+      content: `✅ Approved by ${interaction.user.username} — DM sent + onboarding channels created`,
       components: [],
     });
 
@@ -140,7 +183,7 @@ module.exports = async (interaction) => {
     );
 
     return interaction.editReply({
-      content: `✅ Approved ${application.username}! DM sent for scheduling + onboarding channel created: <#${onboardingChannel.id}>`,
+      content: `✅ Approved ${application.username}! DM sent + onboarding channels created: <#${onboardingChannel.id}>`,
     });
   }
 
