@@ -85,7 +85,7 @@ client.once('clientReady', async () => {
     }
   }
 
-  // Status + cleanup always run regardless
+  // Status + cleanup always run
   await updateStatus(client);
   setInterval(() => updateStatus(client), 5 * 60 * 1000);
   setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
@@ -140,7 +140,6 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await log(client, 'Call Scheduled', `<@${userId}> requested a call on ${date} at ${time} IST`, 0x00ff00);
-
         return interaction.editReply({ content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.' });
       }
     }
@@ -237,7 +236,13 @@ async function closeOnboarding(interaction) {
 
 /* -------------------- MEMBER JOIN -------------------- */
 
+const recentJoins = new Set();
+
 client.on('guildMemberAdd', async (member) => {
+  if (recentJoins.has(member.id)) return;
+  recentJoins.add(member.id);
+  setTimeout(() => recentJoins.delete(member.id), 30_000);
+
   console.log(`guildMemberAdd fired: ${member.user.username}`);
   try {
     const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
