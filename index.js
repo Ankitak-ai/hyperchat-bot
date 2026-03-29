@@ -135,7 +135,7 @@ client.on('interactionCreate', async (interaction) => {
               { name: 'Date', value: date, inline: true },
               { name: 'Time (IST)', value: time, inline: true },
             ],
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
           }],
         });
 
@@ -257,7 +257,24 @@ client.on('guildMemberAdd', async (member) => {
     );
 
     await welcomeChannel.send({
-      content: `👋 Welcome <@${member.id}> to **HyperChat**! Click below to get started.`,
+      embeds: [{
+        color: 0x5865f2,
+        description: [
+          `## 👋 Welcome, <@${member.id}>!`,
+          ``,
+          `You've just joined **HyperChat** — a platform built for creators.`,
+          ``,
+          `**What we offer:**`,
+          `🔊 Live TTS & Audio Alerts`,
+          `📺 Onscreen Alerts & Overlays`,
+          `💳 Seamless Razorpay Payments`,
+          `🎯 Creator Tools & Support`,
+          ``,
+          `> Ready to get started? Use the buttons below!`,
+        ].join('\n'),
+        footer: { text: 'HyperChat • Built for Creators' },
+        timestamp: new Date().toISOString(),
+      }],
       components: [row],
     });
 
