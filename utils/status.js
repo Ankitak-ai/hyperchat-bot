@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const supabase = require('../supabase');
 const https = require('https');
 
@@ -114,12 +114,10 @@ async function updateStatus(client) {
       let value = `\`${emoji} ${svc.status.charAt(0).toUpperCase() + svc.status.slice(1)}\``;
       if (svc.message) value += `\n${svc.message}`;
 
-      // Override with live ping for database
       if (svc.service === 'database') {
         value = dbPing.online ? `\`🟢 Online · ${dbPing.ping}ms\`` : '`🔴 Offline`';
       }
 
-      // Override with live ping for website
       if (svc.service === 'website') {
         value = websitePing.online
           ? `\`🟢 Online · ${websitePing.ping}ms\``
@@ -129,20 +127,17 @@ async function updateStatus(client) {
       fields.push({ name: label, value, inline: true });
     }
 
-    // Uptime fields
     fields.push(
       { name: '⏱️ Bot Uptime', value: `\`${getBotUptime()}\``, inline: true },
       { name: '🚀 Since Launch', value: `\`${getDaysSinceLaunch()} days\``, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
     );
 
-    // Incidents
     const incidentValue = incidents.length > 0
       ? incidents.map(i => `${severityEmoji[i.severity]} **${i.title}** — ${i.status}`).join('\n')
       : 'No active incidents';
     fields.push({ name: '🔔 Incidents', value: incidentValue, inline: false });
 
-    // Maintenance
     const maintenanceValue = maintenance.length > 0
       ? maintenance.map(m => {
           const date = new Date(m.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
@@ -161,10 +156,17 @@ async function updateStatus(client) {
       .setFooter({ text: 'Last updated' })
       .setTimestamp();
 
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('🎯 Want to join HyperChat? Apply here!')
+        .setURL(`https://discord.com/channels/${process.env.GUILD_ID}/1486812227356066034`)
+        .setStyle(ButtonStyle.Link),
+    );
+
     if (statusMessageId) {
       try {
         const existing = await statusChannel.messages.fetch(statusMessageId);
-        await existing.edit({ embeds: [embed] });
+        await existing.edit({ embeds: [embed], components: [row] });
         return;
       } catch {
         statusMessageId = null;
@@ -176,9 +178,9 @@ async function updateStatus(client) {
 
     if (botMessage) {
       statusMessageId = botMessage.id;
-      await botMessage.edit({ embeds: [embed] });
+      await botMessage.edit({ embeds: [embed], components: [row] });
     } else {
-      const sent = await statusChannel.send({ embeds: [embed] });
+      const sent = await statusChannel.send({ embeds: [embed], components: [row] });
       statusMessageId = sent.id;
     }
   } catch (err) {
