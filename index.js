@@ -19,7 +19,7 @@ const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
 const { checkRateLimit, formatTime } = require('./utils/rateLimit');
 const { runCleanup } = require('./utils/cleanup');
-const { updateStatus } = require('./utils/status');
+const { updateStatus, recordBotStart } = require('./utils/status'); // ← updated
 
 const client = new Client({
   intents: [
@@ -63,6 +63,8 @@ requiredEnv.forEach((key) => {
 client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
+  await recordBotStart(); // ← added
+
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   const welcomeChannel = guild.channels.cache.find((c) => c.name === 'welcome');
 
@@ -85,7 +87,6 @@ client.once('clientReady', async () => {
     }
   }
 
-  // Status + cleanup always run
   await updateStatus(client);
   setInterval(() => updateStatus(client), 5 * 60 * 1000);
   setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
