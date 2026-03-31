@@ -15,6 +15,7 @@ const severityEmoji = {
   minor: '🟡',
   major: '🟠',
   critical: '🔴',
+  high: '🔴',
 };
 
 const serviceLabels = {
@@ -25,6 +26,31 @@ const serviceLabels = {
   onscreen_alerts: '📺 Onscreen Alerts',
   razorpay: '💳 Razorpay Payments',
 };
+
+// Store bot start time in Supabase on boot
+async function recordBotStart() {
+  await supabase
+    .from('system_status')
+    .update({ last_started_at: new Date().toISOString() })
+    .eq('service', 'bot');
+}
+
+async function getBotStartTime() {
+  const { data } = await supabase
+    .from('system_status')
+    .select('last_started_at')
+    .eq('service', 'bot')
+    .single();
+  return data?.last_started_at ? new Date(data.last_started_at) : null;
+}
+
+function formatUptime(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  return `${days}d ${hours}h ${minutes}m`;
+}
 
 async function getSupabaseStatus() {
   try {
@@ -60,10 +86,11 @@ async function getServiceStatuses() {
 }
 
 async function getActiveIncidents() {
+  const since24h = new Date(Date.now() - 86400000).toISOString();
   const { data } = await supabase
     .from('incidents')
     .select('title, severity, status, created_at')
-    .neq('status', 'resolved')
+    .or(`status.neq.resolved,resolved_at.gte.${since24h}`)
     .order('created_at', { ascending: false });
   return data || [];
 }
@@ -77,14 +104,6 @@ async function getUpcomingMaintenance() {
   return data || [];
 }
 
-function getBotUptime() {
-  const uptime = process.uptime();
-  const days = Math.floor(uptime / 86400);
-  const hours = Math.floor((uptime % 86400) / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  return `${days}d ${hours}h ${minutes}m`;
-}
-
 function getDaysSinceLaunch() {
   const now = new Date();
   const diff = now - LAUNCH_DATE;
@@ -96,13 +115,18 @@ async function updateStatus(client) {
     const statusChannel = await client.channels.fetch(process.env.STATUS_CHANNEL_ID);
     if (!statusChannel) return;
 
-    const [dbPing, websitePing, services, incidents, maintenance] = await Promise.all([
+    const [dbPing, websitePing, services, incidents, maintenance, botStartTime] = await Promise.all([
       getSupabaseStatus(),
       pingWebsite('https://hyperchat.space/'),
       getServiceStatuses(),
       getActiveIncidents(),
       getUpcomingMaintenance(),
+      getBotStartTime(),
     ]);
+
+    const uptimeStr = botStartTime
+      ? formatUptime(Date.now() - botStartTime.getTime())
+      : formatUptime(process.uptime() * 1000); // fallback
 
     const allOperational = services.every(s => s.status === 'operational') && dbPing.online && websitePing.online;
 
@@ -128,13 +152,16 @@ async function updateStatus(client) {
     }
 
     fields.push(
-      { name: '⏱️ Bot Uptime', value: `\`${getBotUptime()}\``, inline: true },
+      { name: '⏱️ Bot Uptime', value: `\`${uptimeStr}\``, inline: true },
       { name: '🚀 Since Launch', value: `\`${getDaysSinceLaunch()} days\``, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
     );
 
     const incidentValue = incidents.length > 0
-      ? incidents.map(i => `${severityEmoji[i.severity]} **${i.title}** — ${i.status}`).join('\n')
+      ? incidents.map(i => {
+          const statusLabel = i.status === 'resolved' ? '✅ Resolved' : `${severityEmoji[i.severity] || '🔴'} Active`;
+          return `${statusLabel} — **${i.title}**`;
+        }).join('\n')
       : 'No active incidents';
     fields.push({ name: '🔔 Incidents', value: incidentValue, inline: false });
 
@@ -188,4 +215,4 @@ async function updateStatus(client) {
   }
 }
 
-module.exports = { updateStatus };
+module.exports = { updateStatus, recordBotStart };
