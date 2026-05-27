@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
 
@@ -6,10 +6,86 @@ module.exports = async (interaction) => {
   const customId = interaction.customId;
   const isApprove = customId.startsWith('approve_');
   const isReject = customId.startsWith('reject_');
+  const isRejectSubmit = customId.startsWith('reject_reason_');
+
+  // Handle rejection modal submission
+  if (isRejectSubmit) {
+    const discordId = customId.split('_')[2];
+    const reason = interaction.fields.getTextInputValue('rejection_reason');
+
+    await interaction.deferReply({ flags: 64 });
+
+    const { data: application, error } = await supabase
+      .from('creator_applications')
+      .select('id, status, username')
+      .eq('discord_id', discordId)
+      .eq('status', 'pending')
+      .single();
+
+    if (error || !application) {
+      return interaction.editReply({ content: '❌ Application no longer exists or already reviewed.' });
+    }
+
+    await supabase
+      .from('creator_applications')
+      .update({ status: 'rejected' })
+      .eq('id', application.id);
+
+    const member = await interaction.guild.members.fetch(discordId).catch(() => null);
+    if (member) {
+      const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+      if (guestRole && member.roles.cache.has(guestRole.id)) {
+        await member.roles.remove(guestRole);
+      }
+      try {
+        await member.user.send(
+          `❌ **Your HyperChat creator application has been rejected.**\n\n` +
+          `**Reason:** ${reason}\n\n` +
+          `You may apply again after 24 hours. If you have questions, please contact our support team.`
+        );
+      } catch {
+        console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
+      }
+    }
+
+    await interaction.message.edit({
+      content: `❌ Rejected by ${interaction.user.username} — Reason: ${reason}`,
+      components: [],
+    });
+
+    await log(
+      interaction.client,
+      'Application Rejected',
+      `**${application.username}** (${discordId}) rejected by **${interaction.user.username}**.\n**Reason:** ${reason}`,
+      0xff0000
+    );
+
+    return interaction.editReply({
+      content: `✅ Application from ${application.username} rejected. Reason sent via DM.`,
+    });
+  }
 
   if (!isApprove && !isReject) return;
 
   const discordId = customId.split('_')[1];
+
+  // Show modal for rejection reason
+  if (isReject) {
+    const modal = new ModalBuilder()
+      .setCustomId(`reject_reason_${discordId}`)
+      .setTitle('Rejection Reason');
+
+    const reasonInput = new TextInputBuilder()
+      .setCustomId('rejection_reason')
+      .setLabel('Why is this application being rejected?')
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder('Enter the reason for rejection...')
+      .setRequired(true)
+      .setMaxLength(500);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+    return interaction.showModal(modal);
+  }
 
   await interaction.deferReply({ flags: 64 });
 
@@ -52,7 +128,6 @@ module.exports = async (interaction) => {
       .update({ status: 'approved_pending' })
       .eq('id', application.id);
 
-    // 1. DM user with schedule button
     try {
       const scheduleRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -71,88 +146,37 @@ module.exports = async (interaction) => {
       console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
     }
 
-    // 2. Create onboarding text channel
     const onboardingChannel = await interaction.guild.channels.create({
       name: `onboarding-${application.username}`,
       type: ChannelType.GuildText,
       parent: process.env.ONBOARDING_CATEGORY_ID,
       permissionOverwrites: [
-        {
-          id: interaction.guild.roles.everyone.id,
-          deny: [PermissionFlagsBits.ViewChannel],
-        },
-        {
-          id: discordId,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory,
-          ],
-        },
-        {
-          id: interaction.guild.members.me.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ManageChannels,
-            PermissionFlagsBits.ReadMessageHistory,
-          ],
-        },
+        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
       ],
     });
 
-    if (adminRole) {
-      await onboardingChannel.permissionOverwrites.create(adminRole, {
-        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
-      });
-    }
-    if (reviewerRole) {
-      await onboardingChannel.permissionOverwrites.create(reviewerRole, {
-        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
-      });
-    }
+    const adminRole2 = interaction.guild.roles.cache.find(r => r.name === 'Admin');
+    const reviewerRole2 = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
 
-    // 3. Create onboarding voice channel
+    if (adminRole2) await onboardingChannel.permissionOverwrites.create(adminRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+    if (reviewerRole2) await onboardingChannel.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+
     const onboardingVoice = await interaction.guild.channels.create({
       name: `onboarding-voice-${application.username}`,
       type: ChannelType.GuildVoice,
       parent: process.env.ONBOARDING_CATEGORY_ID,
       permissionOverwrites: [
-        {
-          id: interaction.guild.roles.everyone.id,
-          deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-        },
-        {
-          id: discordId,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.Connect,
-            PermissionFlagsBits.Speak,
-          ],
-        },
-        {
-          id: interaction.guild.members.me.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.Connect,
-            PermissionFlagsBits.ManageChannels,
-          ],
-        },
+        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+        { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
+        { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.ManageChannels] },
       ],
     });
 
-    if (adminRole) {
-      await onboardingVoice.permissionOverwrites.create(adminRole, {
-        ViewChannel: true, Connect: true, Speak: true,
-      });
-    }
-    if (reviewerRole) {
-      await onboardingVoice.permissionOverwrites.create(reviewerRole, {
-        ViewChannel: true, Connect: true, Speak: true,
-      });
-    }
+    if (adminRole2) await onboardingVoice.permissionOverwrites.create(adminRole2, { ViewChannel: true, Connect: true, Speak: true });
+    if (reviewerRole2) await onboardingVoice.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, Connect: true, Speak: true });
 
-    // 4. Send welcome message in onboarding channel
     const closeRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`close_onboarding_${discordId}`)
@@ -184,42 +208,6 @@ module.exports = async (interaction) => {
 
     return interaction.editReply({
       content: `✅ Approved ${application.username}! DM sent + onboarding channels created: <#${onboardingChannel.id}>`,
-    });
-  }
-
-  if (isReject) {
-    await supabase
-      .from('creator_applications')
-      .update({ status: 'rejected' })
-      .eq('id', application.id);
-
-    const member = await interaction.guild.members.fetch(discordId).catch(() => null);
-    if (member) {
-      const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
-      if (guestRole && member.roles.cache.has(guestRole.id)) {
-        await member.roles.remove(guestRole);
-      }
-      try {
-        await member.user.send('❌ Unfortunately your HyperChat creator application has been rejected. You may apply again after 24 hours.');
-      } catch {
-        console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
-      }
-    }
-
-    await interaction.message.edit({
-      content: `❌ Rejected by ${interaction.user.username}`,
-      components: [],
-    });
-
-    await log(
-      interaction.client,
-      'Application Rejected',
-      `**${application.username}** (${discordId}) rejected by **${interaction.user.username}**.`,
-      0xff0000
-    );
-
-    return interaction.editReply({
-      content: `✅ Application from ${application.username} has been rejected.`,
     });
   }
 };
