@@ -14,12 +14,13 @@ const {
 
 const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
+const setupChannelsCommand = require('./commands/setup-channels');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
 const { checkRateLimit, formatTime } = require('./utils/rateLimit');
 const { runCleanup } = require('./utils/cleanup');
-const { updateStatus, recordBotStart } = require('./utils/status'); // ← updated
+const { updateStatus, recordBotStart } = require('./utils/status');
 
 const client = new Client({
   intents: [
@@ -49,6 +50,7 @@ const requiredEnv = [
   'SCHEDULING_CHANNEL_ID',
   'ONBOARDING_CATEGORY_ID',
   'STATUS_CHANNEL_ID',
+  'CREATOR_CATEGORY_ID',
 ];
 
 requiredEnv.forEach((key) => {
@@ -63,7 +65,7 @@ requiredEnv.forEach((key) => {
 client.once('clientReady', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  await recordBotStart(); // ← added
+  await recordBotStart();
 
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   const welcomeChannel = guild.channels.cache.find((c) => c.name === 'welcome');
@@ -100,12 +102,17 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'apply') return applyCommand(interaction);
       if (interaction.commandName === 'activate') return activateCommand(interaction);
+      if (interaction.commandName === 'setup-channels') return setupChannelsCommand(interaction);
     }
 
     /* ---------- MODAL SUBMIT ---------- */
     if (interaction.isModalSubmit()) {
       if (interaction.customId === 'apply_modal') {
         return applyCommand(interaction);
+      }
+
+      if (interaction.customId.startsWith('reject_reason_')) {
+        return approvalHandler(interaction);
       }
 
       if (interaction.customId.startsWith('schedule_modal_')) {
