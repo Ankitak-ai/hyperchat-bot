@@ -1,6 +1,6 @@
+const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
-const { EmbedBuilder } = require('discord.js');
 
 module.exports = async (interaction) => {
   await interaction.deferReply({ flags: 64 });
@@ -65,6 +65,40 @@ module.exports = async (interaction) => {
     setTimeout(() => onboardingVoice.delete().catch(console.error), 10_000);
   }
 
+  // Create private hc- channel
+  const creatorChannel = await interaction.guild.channels.create({
+    name: `hc-${application.username}`,
+    type: ChannelType.GuildText,
+    parent: process.env.CREATOR_CATEGORY_ID,
+    permissionOverwrites: [
+      { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: targetUser.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+      },
+      {
+        id: interaction.guild.members.me.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
+      },
+    ],
+  });
+
+  if (adminRole) {
+    await creatorChannel.permissionOverwrites.create(adminRole, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+    });
+  }
+
+  await creatorChannel.send(
+    `👋 Hey <@${targetUser.id}>! Welcome to your private HyperChat channel.\n\n` +
+    `This is your dedicated space to connect with the HyperChat team. Use this channel for:\n` +
+    `📌 Setup help\n` +
+    `🐛 Issues or bugs\n` +
+    `💡 Feature requests\n` +
+    `📢 Important updates from the team\n\n` +
+    `Welcome aboard! 🚀`
+  );
+
   // Post in #announcements
   try {
     const announcementsChannel = await interaction.client.channels.fetch(process.env.ANNOUNCEMENTS_CHANNEL_ID);
@@ -96,9 +130,11 @@ module.exports = async (interaction) => {
   await log(
     interaction.client,
     'Creator Activated',
-    `**${targetUser.username}** (${targetUser.id}) activated as Creator by **${interaction.user.username}**.`,
+    `**${targetUser.username}** (${targetUser.id}) activated as Creator by **${interaction.user.username}**.\nPrivate channel: <#${creatorChannel.id}>`,
     0x57f287
   );
 
-  return interaction.editReply({ content: `✅ Successfully activated ${targetUser.username} as a Creator!` });
+  return interaction.editReply({
+    content: `✅ Successfully activated ${targetUser.username} as a Creator! Private channel: <#${creatorChannel.id}>`,
+  });
 };
