@@ -9,7 +9,7 @@ const commands = [
       {
         name: 'details',
         description: 'Tell us about yourself and why you want to join',
-        type: 3, // STRING
+        type: 3,
         required: true,
       },
     ],
@@ -21,10 +21,14 @@ const commands = [
       {
         name: 'user',
         description: 'The user to activate',
-        type: 6, // USER
+        type: 6,
         required: true,
       },
     ],
+  },
+  {
+    name: 'setup-channels',
+    description: 'Create private hc- channels for all activated creators (Admin only)',
   },
 ];
 
@@ -33,15 +37,10 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     console.log('Registering slash commands...');
-
     await rest.put(
-      Routes.applicationGuildCommands(
-        process.env.CLIENT_ID,
-        process.env.GUILD_ID
-      ),
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: commands }
     );
-
     console.log('✅ Slash commands registered successfully!');
   } catch (error) {
     console.error('❌ Error registering commands:', error);
