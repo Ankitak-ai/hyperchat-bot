@@ -100,6 +100,7 @@ client.on('interactionCreate', async (interaction) => {
   try {
     /* ---------- SLASH COMMANDS ---------- */
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'setup-channel') return require('./commands/setup-channel')(interaction);
       if (interaction.commandName === 'apply') return applyCommand(interaction);
       if (interaction.commandName === 'activate') return activateCommand(interaction);
       if (interaction.commandName === 'setup-channels') return setupChannelsCommand(interaction);
