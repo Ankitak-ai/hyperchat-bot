@@ -30,6 +30,18 @@ const commands = [
     name: 'setup-channels',
     description: 'Create private hc- channels for all activated creators (Admin only)',
   },
+  {
+  name: 'setup-channel',
+  description: 'Create a private hc- channel for a specific creator (Admin only)',
+  options: [
+    {
+      name: 'user',
+      description: 'The user to create a channel for',
+      type: 6,
+      required: true,
+    },
+  ],
+},
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
