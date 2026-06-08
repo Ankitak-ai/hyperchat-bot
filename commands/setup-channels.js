@@ -11,80 +11,61 @@ module.exports = async (interaction) => {
     return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
   }
 
-  const creatorRole = interaction.guild.roles.cache.get(process.env.CREATOR_ROLE_ID);
-  if (!creatorRole) {
-    return interaction.editReply({ content: '❌ Creator role not found.' });
+  const targetUser = interaction.options.getUser('user');
+  const targetMember = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+  if (!targetMember) {
+    return interaction.editReply({ content: '❌ User not found in this server.' });
   }
 
-  // Fetch all members with Creator role
-  await interaction.guild.members.fetch();
-  const creators = interaction.guild.members.cache.filter(m => m.roles.cache.has(creatorRole.id));
+  const channelName = `hc-${targetUser.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
-  if (creators.size === 0) {
-    return interaction.editReply({ content: '❌ No creators found.' });
+  const existing = interaction.guild.channels.cache.find(c => c.name === channelName);
+  if (existing) {
+    return interaction.editReply({ content: `❌ Channel already exists: <#${existing.id}>` });
   }
 
-  const creatorCategory = process.env.CREATOR_CATEGORY_ID;
-  let created = 0;
-  let skipped = 0;
+  const creatorChannel = await interaction.guild.channels.create({
+    name: channelName,
+    type: ChannelType.GuildText,
+    parent: process.env.CREATOR_CATEGORY_ID,
+    permissionOverwrites: [
+      { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: targetUser.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+      },
+      {
+        id: interaction.guild.members.me.id,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
+      },
+    ],
+  });
 
-  for (const [, creatorMember] of creators) {
-    const username = creatorMember.user.username;
-    const channelName = `hc-${username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
-    // Skip if channel already exists
-    const existing = interaction.guild.channels.cache.find(c => c.name === channelName);
-    if (existing) { skipped++; continue; }
-
-    try {
-      const creatorChannel = await interaction.guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: creatorCategory,
-        permissionOverwrites: [
-          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-          {
-            id: creatorMember.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-          },
-          {
-            id: interaction.guild.members.me.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
-          },
-        ],
-      });
-
-      if (adminRole) {
-        await creatorChannel.permissionOverwrites.create(adminRole, {
-          ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
-        });
-      }
-
-      await creatorChannel.send(
-        `👋 Hey <@${creatorMember.id}>! Welcome to your private HyperChat channel.\n\n` +
-        `This is your dedicated space to connect with the HyperChat team. Use this channel for:\n` +
-        `📌 Setup help\n` +
-        `🐛 Issues or bugs\n` +
-        `💡 Feature requests\n` +
-        `📢 Important updates from the team\n\n` +
-        `Welcome aboard! 🚀`
-      );
-
-      created++;
-    } catch (err) {
-      console.error(`Failed to create channel for ${username}:`, err);
-      skipped++;
-    }
+  if (adminRole) {
+    await creatorChannel.permissionOverwrites.create(adminRole, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+    });
   }
+
+  await creatorChannel.send(
+    `👋 Hey <@${targetUser.id}>! Welcome to your private HyperChat channel.\n\n` +
+    `This is your dedicated space to connect with the HyperChat team. Use this channel for:\n` +
+    `📌 Setup help\n` +
+    `🐛 Issues or bugs\n` +
+    `💡 Feature requests\n` +
+    `📢 Important updates from the team\n\n` +
+    `Welcome aboard! 🚀`
+  );
 
   await log(
     interaction.client,
-    'Setup Channels',
-    `Bulk channel creation by **${interaction.user.username}**.\nCreated: **${created}** | Skipped: **${skipped}**`,
+    'Channel Created',
+    `Private channel created for **${targetUser.username}** by **${interaction.user.username}**.\nChannel: <#${creatorChannel.id}>`,
     0x57f287
   );
 
   return interaction.editReply({
-    content: `✅ Done! Created **${created}** channels, skipped **${skipped}** (already exist or failed).`,
+    content: `✅ Created private channel for ${targetUser.username}: <#${creatorChannel.id}>`,
   });
 };
