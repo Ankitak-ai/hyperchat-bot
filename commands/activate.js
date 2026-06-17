@@ -101,7 +101,7 @@ module.exports = async (interaction) => {
 
   // Post in #announcements
   try {
-    const announcementsChannel = await interaction.client.channels.fetch(process.env.ANNOUNCEMENTS_CHANNEL_ID);
+    const announcementsChannel = await interaction.client.channels.fetch(process.env.NEW_CREATORS_CHANNEL_ID);
     const embed = new EmbedBuilder()
       .setTitle('🎉 New Creator!')
       .setDescription(`Welcome <@${targetUser.id}> to the HyperChat creator family!`)
