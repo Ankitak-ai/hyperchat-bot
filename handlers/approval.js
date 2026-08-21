@@ -17,8 +17,6 @@ async function getAvailableOnboardingCategory(guild) {
     }
   }
 
-  // All known categories full (or misconfigured) — fall back to the first one,
-  // Discord will still reject if truly full, but this keeps behavior predictable.
   return categoryIds[0];
 }
 
@@ -28,7 +26,6 @@ module.exports = async (interaction) => {
   const isReject = customId.startsWith('reject_');
   const isRejectSubmit = customId.startsWith('reject_reason_');
 
-  // Handle rejection modal submission
   if (isRejectSubmit) {
     const discordId = customId.split('_')[2];
     const reason = interaction.fields.getTextInputValue('rejection_reason');
@@ -89,7 +86,6 @@ module.exports = async (interaction) => {
 
   const discordId = customId.split('_')[1];
 
-  // Show modal for rejection reason
   if (isReject) {
     const modal = new ModalBuilder()
       .setCustomId(`reject_reason_${discordId}`)
@@ -168,8 +164,7 @@ module.exports = async (interaction) => {
 
     const targetCategoryId = await getAvailableOnboardingCategory(interaction.guild);
 
-    // Discord channel names can only contain lowercase letters, numbers, and hyphens.
-    // Max length is 100 characters. We sanitize the username to prevent 50035 errors.
+    // FIX: Sanitize username to remove underscores and invalid characters
     const safeUsername = application.username
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-')
