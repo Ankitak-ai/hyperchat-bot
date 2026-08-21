@@ -166,12 +166,12 @@ module.exports = async (interaction) => {
       console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
     }
 
-    const categoryId = await getAvailableOnboardingCategory(interaction.guild);
+    const targetCategoryId = await getAvailableOnboardingCategory(interaction.guild);
 
     const onboardingChannel = await interaction.guild.channels.create({
       name: `onboarding-${application.username}`,
       type: ChannelType.GuildText,
-      parent: categoryId,
+      parent: targetCategoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
         { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
@@ -188,7 +188,7 @@ module.exports = async (interaction) => {
     const onboardingVoice = await interaction.guild.channels.create({
       name: `onboarding-voice-${application.username}`,
       type: ChannelType.GuildVoice,
-      parent: categoryId,
+      parent: targetCategoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
         { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
