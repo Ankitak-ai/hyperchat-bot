@@ -22,6 +22,20 @@ const { checkRateLimit, formatTime } = require('./utils/rateLimit');
 const { runCleanup } = require('./utils/cleanup');
 const { updateStatus, recordBotStart } = require('./utils/status');
 
+/* -------------------- HELPERS -------------------- */
+
+function getDisplayName(member) {
+  return (
+    member?.nickname ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    member?.user?.tag ||
+    'new creator'
+  );
+}
+
+/* -------------------- CLIENT -------------------- */
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -134,22 +148,33 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
+        const scheduleDisplayName = member ? getDisplayName(member) : 'Unknown user';
 
         await schedulingChannel.send({
-          embeds: [{
-            title: '📅 New Onboarding Call Request',
-            color: 0x5865f2,
-            fields: [
-              { name: 'User', value: `<@${userId}>`, inline: true },
-              { name: 'Date', value: date, inline: true },
-              { name: 'Time (IST)', value: time, inline: true },
-            ],
-            timestamp: new Date().toISOString(),
-          }],
+          embeds: [
+            {
+              title: '📅 New Onboarding Call Request',
+              color: 0x5865f2,
+              fields: [
+                { name: 'User', value: `${scheduleDisplayName}\nID: ${userId}`, inline: true },
+                { name: 'Date', value: date, inline: true },
+                { name: 'Time (IST)', value: time, inline: true },
+              ],
+              timestamp: new Date().toISOString(),
+            },
+          ],
         });
 
-        await log(client, 'Call Scheduled', `<@${userId}> requested a call on ${date} at ${time} IST`, 0x00ff00);
-        return interaction.editReply({ content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.' });
+        await log(
+          client,
+          'Call Scheduled',
+          `${scheduleDisplayName} (${userId}) requested a call on ${date} at ${time} IST`,
+          0x00ff00
+        );
+
+        return interaction.editReply({
+          content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.',
+        });
       }
     }
 
@@ -235,7 +260,12 @@ async function closeOnboarding(interaction) {
   const channel = interaction.channel;
 
   await channel.send('✅ Onboarding channel closed. Deleting in 10 seconds...');
-  await log(interaction.client, 'Onboarding Closed', `${channel.name} closed by **${interaction.user.username}**.`, 0xffa500);
+  await log(
+    interaction.client,
+    'Onboarding Closed',
+    `${channel.name} closed by **${interaction.user.username}**.`,
+    0xffa500
+  );
   await interaction.editReply({ content: '✅ Onboarding channel will be deleted shortly.' });
 
   setTimeout(async () => {
@@ -252,7 +282,8 @@ client.on('guildMemberAdd', async (member) => {
   recentJoins.add(member.id);
   setTimeout(() => recentJoins.delete(member.id), 30_000);
 
-  console.log(`guildMemberAdd fired: ${member.user.username}`);
+  console.log(`guildMemberAdd fired: ${member.user?.username || member.id}`);
+
   try {
     const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
     if (guestRole) await member.roles.add(guestRole).catch(console.error);
@@ -260,34 +291,54 @@ client.on('guildMemberAdd', async (member) => {
     const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
     if (!welcomeChannel) return;
 
+    let joinedUser = member.user;
+
+    try {
+      joinedUser = await member.user.fetch(true);
+    } catch {}
+
+    const welcomeName =
+      member.nickname ||
+      joinedUser?.globalName ||
+      joinedUser?.username ||
+      joinedUser?.tag ||
+      'new creator';
+
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
     );
 
     await welcomeChannel.send({
-      embeds: [{
-        color: 0x5865f2,
-        description: [
-          `## 👋 Welcome, <@${member.id}>!`,
-          ``,
-          `You've just joined **HyperChat** — a platform built for creators.`,
-          ``,
-          `**What we offer:**`,
-          `🔊 Live TTS & Audio Alerts`,
-          `📺 Onscreen Alerts & Overlays`,
-          `💳 Seamless Razorpay Payments`,
-          `🎯 Creator Tools & Support`,
-          ``,
-          `> Ready to get started? Use the buttons below!`,
-        ].join('\n'),
-        footer: { text: 'HyperChat • Built for Creators' },
-        timestamp: new Date().toISOString(),
-      }],
+      embeds: [
+        {
+          color: 0x5865f2,
+          description: [
+            `## 👋 Welcome, @${welcomeName}!`,
+            ``,
+            `You've just joined **HyperChat** — a platform built for creators.`,
+            ``,
+            `**What we offer:**`,
+            `🔊 Live TTS & Audio Alerts`,
+            `📺 Onscreen Alerts & Overlays`,
+            `💳 Seamless Razorpay Payments`,
+            `🎯 Creator Tools & Support`,
+            ``,
+            `> Ready to get started? Use the buttons below!`,
+          ].join('\n'),
+          footer: { text: 'HyperChat • Built for Creators' },
+          timestamp: new Date().toISOString(),
+        },
+      ],
       components: [row],
     });
 
-    await log(client, 'Member Joined', `<@${member.id}> joined the server.`, 0x57f287);
+    await log(
+      client,
+      'Member Joined',
+      `${welcomeName} (${member.id}) joined the server.`,
+      0x57f287
+    );
   } catch (err) {
     console.error('guildMemberAdd error:', err);
   }
