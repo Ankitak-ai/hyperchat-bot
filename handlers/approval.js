@@ -168,8 +168,16 @@ module.exports = async (interaction) => {
 
     const targetCategoryId = await getAvailableOnboardingCategory(interaction.guild);
 
+    // Discord channel names can only contain lowercase letters, numbers, and hyphens.
+    // Max length is 100 characters. We sanitize the username to prevent 50035 errors.
+    const safeUsername = application.username
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .substring(0, 90);
+
     const onboardingChannel = await interaction.guild.channels.create({
-      name: `onboarding-${application.username}`,
+      name: `onboarding-${safeUsername}`,
       type: ChannelType.GuildText,
       parent: targetCategoryId,
       permissionOverwrites: [
@@ -186,7 +194,7 @@ module.exports = async (interaction) => {
     if (reviewerRole2) await onboardingChannel.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
 
     const onboardingVoice = await interaction.guild.channels.create({
-      name: `onboarding-voice-${application.username}`,
+      name: `onboarding-voice-${safeUsername}`,
       type: ChannelType.GuildVoice,
       parent: targetCategoryId,
       permissionOverwrites: [
@@ -211,7 +219,7 @@ module.exports = async (interaction) => {
         `👋 Welcome <@${discordId}>! Your application has been approved.\n\n` +
         `This is your onboarding channel. Our team will use this space to guide you through the setup after your scheduled call.\n\n` +
         `**Check your DMs** to schedule your onboarding call.\n\n` +
-        `You also have access to the voice channel **onboarding-voice-${application.username}** above for your call.\n\n` +
+        `You also have access to the voice channel **onboarding-voice-${safeUsername}** above for your call.\n\n` +
         `An admin will close this channel once onboarding is complete.`,
       components: [closeRow],
     });
