@@ -2,6 +2,26 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, Chann
 const supabase = require('../supabase');
 const { log } = require('../utils/logger');
 
+async function getAvailableOnboardingCategory(guild) {
+  const categoryIds = [
+    process.env.ONBOARDING_CATEGORY_ID,
+    process.env.ONBOARDING_CATEGORY_ID_2,
+  ].filter(Boolean);
+
+  for (const catId of categoryIds) {
+    const category = guild.channels.cache.get(catId);
+    if (!category) continue;
+    const childCount = guild.channels.cache.filter(ch => ch.parentId === catId).size;
+    if (childCount < 50) {
+      return catId;
+    }
+  }
+
+  // All known categories full (or misconfigured) — fall back to the first one,
+  // Discord will still reject if truly full, but this keeps behavior predictable.
+  return categoryIds[0];
+}
+
 module.exports = async (interaction) => {
   const customId = interaction.customId;
   const isApprove = customId.startsWith('approve_');
@@ -146,10 +166,12 @@ module.exports = async (interaction) => {
       console.warn(`Could not DM user ${application.username} — DMs may be disabled.`);
     }
 
+    const categoryId = await getAvailableOnboardingCategory(interaction.guild);
+
     const onboardingChannel = await interaction.guild.channels.create({
       name: `onboarding-${application.username}`,
       type: ChannelType.GuildText,
-      parent: process.env.ONBOARDING_CATEGORY_ID,
+      parent: categoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
         { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
@@ -166,7 +188,7 @@ module.exports = async (interaction) => {
     const onboardingVoice = await interaction.guild.channels.create({
       name: `onboarding-voice-${application.username}`,
       type: ChannelType.GuildVoice,
-      parent: process.env.ONBOARDING_CATEGORY_ID,
+      parent: categoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
         { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
