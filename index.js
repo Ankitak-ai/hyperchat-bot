@@ -138,6 +138,10 @@ client.on('interactionCreate', async (interaction) => {
         return applyCommand(interaction);
       }
 
+      if (interaction.customId === 'announce_modal') {
+        return announceCommand(interaction);
+      }
+
       if (interaction.customId.startsWith('reject_reason_')) {
         return approvalHandler(interaction);
       }
