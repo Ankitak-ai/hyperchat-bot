@@ -23,7 +23,7 @@ module.exports = async (interaction) => {
 
     const titleInput = new TextInputBuilder()
       .setCustomId('announcement_title')
-      .setLabel('Title (optional)')
+      .setLabel('Title (optional, plain text)')
       .setStyle(TextInputStyle.Short)
       .setRequired(false)
       .setMaxLength(256)
@@ -37,9 +37,18 @@ module.exports = async (interaction) => {
       .setMaxLength(4000)
       .setPlaceholder('Type or paste your announcement here...\nYou can use line breaks, **bold**, *italic*, etc.');
 
+    const pingInput = new TextInputBuilder()
+      .setCustomId('announcement_ping')
+      .setLabel('Ping (everyone / here / none)')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(10)
+      .setPlaceholder('Default: everyone');
+
     modal.addComponents(
       new ActionRowBuilder().addComponents(titleInput),
-      new ActionRowBuilder().addComponents(bodyInput)
+      new ActionRowBuilder().addComponents(bodyInput),
+      new ActionRowBuilder().addComponents(pingInput)
     );
 
     return interaction.showModal(modal);
@@ -58,6 +67,12 @@ module.exports = async (interaction) => {
 
     const title = (interaction.fields.getTextInputValue('announcement_title') || '').trim();
     const body = interaction.fields.getTextInputValue('announcement_body');
+    const pingRaw = (interaction.fields.getTextInputValue('announcement_ping') || '').trim().toLowerCase();
+
+    // Decide the ping. Default is @everyone
+    let pingContent = '@everyone';
+    if (pingRaw === 'here') pingContent = '@here';
+    if (pingRaw === 'none' || pingRaw === 'no' || pingRaw === 'off') pingContent = null;
 
     const isTest = Boolean(process.env.TEST_ANNOUNCEMENTS_CHANNEL_ID);
     const announcementChannelId =
@@ -91,7 +106,7 @@ module.exports = async (interaction) => {
     if (title) embed.setTitle(title);
 
     await channel.send({
-      content: isTest ? undefined : '@everyone',
+      content: pingContent || undefined,
       embeds: [embed],
     });
 
