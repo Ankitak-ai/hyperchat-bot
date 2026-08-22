@@ -10,7 +10,7 @@ const {
   ButtonStyle,
 } = require('discord.js');
 
-// In-memory cache to pass data between Modal Step 1 and Step 2
+// In-memory cache to pass data between Step 1 and Step 2
 const applicationCache = new Map();
 
 module.exports = async (interaction) => {
@@ -100,28 +100,16 @@ module.exports = async (interaction) => {
     return interaction.showModal(modal);
   }
 
-  // 4. Modal 1 submit -> Validate YT link & Show Modal 2
-  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_1') {
-    const youtube = interaction.fields.getTextInputValue('youtube');
-    
-    // Validate YouTube link
-    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i;
-    if (!ytRegex.test(youtube)) {
-      return interaction.reply({ 
-        content: '❌ Please provide a valid YouTube link (e.g., https://youtube.com/...)', 
-        flags: 64 
+  // 4. Step 2 Button -> Show Modal 2
+  // (Discord cannot open a modal right after a modal submit, so we use this button as the bridge)
+  if (interaction.isButton() && interaction.customId === 'apply_step2') {
+    if (!applicationCache.has(interaction.user.id)) {
+      return interaction.reply({
+        content: '❌ Session expired. Please start over with the Apply button.',
+        flags: 64,
       });
     }
 
-    // Cache the data temporarily
-    applicationCache.set(interaction.user.id, {
-      name: interaction.fields.getTextInputValue('name'),
-      youtube: youtube,
-      instagram: interaction.fields.getTextInputValue('instagram'),
-      niche: interaction.fields.getTextInputValue('niche'),
-    });
-
-    // Show Modal 2
     const modal2 = new ModalBuilder()
       .setCustomId('apply_modal_2')
       .setTitle('Step 2: Payout Info');
@@ -148,7 +136,42 @@ module.exports = async (interaction) => {
     return interaction.showModal(modal2);
   }
 
-  // 5. Modal 2 submit -> Finalize & Save to DB
+  // 5. Modal 1 submit -> Validate YT link, cache data, show Step 2 button
+  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_1') {
+    const youtube = interaction.fields.getTextInputValue('youtube');
+
+    // Validate YouTube link
+    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i;
+    if (!ytRegex.test(youtube)) {
+      return interaction.reply({
+        content: '❌ Please provide a valid YouTube link (e.g., https://youtube.com/@yourchannel)',
+        flags: 64,
+      });
+    }
+
+    // Cache the data temporarily
+    applicationCache.set(interaction.user.id, {
+      name: interaction.fields.getTextInputValue('name'),
+      youtube: youtube,
+      instagram: interaction.fields.getTextInputValue('instagram'),
+      niche: interaction.fields.getTextInputValue('niche'),
+    });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('apply_step2')
+        .setLabel('Continue to Step 2: Payout Info')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    return interaction.reply({
+      content: '✅ Step 1 complete! Click the button below to enter your payout details.',
+      components: [row],
+      flags: 64,
+    });
+  }
+
+  // 6. Modal 2 submit -> Finalize & Save to DB
   if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_2') {
     await interaction.deferReply({ flags: 64 });
 
@@ -167,7 +190,9 @@ module.exports = async (interaction) => {
     // Retrieve cached data from Step 1
     const cachedData = applicationCache.get(discordId);
     if (!cachedData) {
-      return interaction.editReply({ content: '❌ Session expired. Please start over with the Apply button.' });
+      return interaction.editReply({
+        content: '❌ Session expired. Please start over with the Apply button.',
+      });
     }
     applicationCache.delete(discordId);
 
