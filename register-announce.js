@@ -1,9 +1,4 @@
-const {
-  REST,
-  Routes,
-  ApplicationCommandOptionType,
-  PermissionFlagsBits,
-} = require('discord.js');
+const { REST, Routes, PermissionFlagsBits } = require('discord.js');
 
 require('dotenv').config();
 
@@ -11,15 +6,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 const announceCommand = {
   name: 'announce',
-  description: 'Post an announcement to the announcements channel (Admin only)',
-  options: [
-    {
-      name: 'message',
-      description: 'The announcement text',
-      type: ApplicationCommandOptionType.String,
-      required: true,
-    },
-  ],
+  description: 'Post a formatted announcement to the announcements channel (Admin only)',
   default_member_permissions: PermissionFlagsBits.Administrator.toString(),
 };
 
