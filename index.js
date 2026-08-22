@@ -358,11 +358,12 @@ client.on('guildMemberAdd', async (member) => {
     );
 
     await welcomeChannel.send({
+      content: `<@${member.id}>`, // This triggers the actual Discord ping/notification
       embeds: [
         {
           color: 0x5865f2,
           description: [
-            `## 👋 Welcome, @${welcomeName}!`,
+            `## 👋 Welcome, **@${welcomeName}**!`,
             ``,
             `You've just joined **HyperChat** — a platform built for creators.`,
             ``,
