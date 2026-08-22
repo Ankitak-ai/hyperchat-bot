@@ -15,6 +15,7 @@ const {
 const applyCommand = require('./commands/apply');
 const activateCommand = require('./commands/activate');
 const setupChannelsCommand = require('./commands/setup-channels');
+const announceCommand = require('./commands/announce');
 const approvalHandler = require('./handlers/approval');
 const ticketHandler = require('./handlers/ticket');
 const { log } = require('./utils/logger');
@@ -86,7 +87,9 @@ client.once('clientReady', async () => {
 
   if (welcomeChannel) {
     const messages = await welcomeChannel.messages.fetch({ limit: 10 });
-    const exists = messages.find((m) => m.author.id === client.user.id && m.components.length > 0);
+    const exists = messages.find(
+      (m) => m.author.id === client.user.id && m.components.length > 0
+    );
 
     if (!exists) {
       const embed = new EmbedBuilder()
@@ -95,8 +98,14 @@ client.once('clientReady', async () => {
         .setColor(0x5865f2);
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder()
+          .setCustomId('start_apply')
+          .setLabel('Apply as Creator')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('create_ticket')
+          .setLabel('Get Support')
+          .setStyle(ButtonStyle.Secondary)
       );
 
       await welcomeChannel.send({ embeds: [embed], components: [row] });
@@ -114,10 +123,13 @@ client.on('interactionCreate', async (interaction) => {
   try {
     /* ---------- SLASH COMMANDS ---------- */
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'setup-channel') return require('./commands/setup-channel')(interaction);
+      if (interaction.commandName === 'setup-channel') {
+        return require('./commands/setup-channel')(interaction);
+      }
       if (interaction.commandName === 'apply') return applyCommand(interaction);
       if (interaction.commandName === 'activate') return activateCommand(interaction);
       if (interaction.commandName === 'setup-channels') return setupChannelsCommand(interaction);
+      if (interaction.commandName === 'announce') return announceCommand(interaction);
     }
 
     /* ---------- MODAL SUBMIT ---------- */
@@ -147,7 +159,9 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        const schedulingChannel = await client.channels.fetch(process.env.SCHEDULING_CHANNEL_ID);
+        const schedulingChannel = await client.channels.fetch(
+          process.env.SCHEDULING_CHANNEL_ID
+        );
         const scheduleDisplayName = member ? getDisplayName(member) : 'Unknown user';
 
         await schedulingChannel.send({
@@ -156,7 +170,11 @@ client.on('interactionCreate', async (interaction) => {
               title: '📅 New Onboarding Call Request',
               color: 0x5865f2,
               fields: [
-                { name: 'User', value: `${scheduleDisplayName}\nID: ${userId}`, inline: true },
+                {
+                  name: 'User',
+                  value: `${scheduleDisplayName}\nID: ${userId}`,
+                  inline: true,
+                },
                 { name: 'Date', value: date, inline: true },
                 { name: 'Time (IST)', value: time, inline: true },
               ],
@@ -173,7 +191,8 @@ client.on('interactionCreate', async (interaction) => {
         );
 
         return interaction.editReply({
-          content: '✅ Your onboarding call has been scheduled! Our team will confirm shortly.',
+          content:
+            '✅ Your onboarding call has been scheduled! Our team will confirm shortly.',
         });
       }
     }
@@ -205,14 +224,19 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
-      if (id.startsWith('approve_') || id.startsWith('reject_')) return approvalHandler(interaction);
+      if (id.startsWith('approve_') || id.startsWith('reject_')) {
+        return approvalHandler(interaction);
+      }
       if (id.startsWith('close_onboarding_')) return closeOnboarding(interaction);
 
       if (id.startsWith('schedule_')) {
         const userId = id.replace('schedule_', '');
 
         if (interaction.user.id !== userId) {
-          return interaction.reply({ content: '❌ This button is not for you.', flags: 64 });
+          return interaction.reply({
+            content: '❌ This button is not for you.',
+            flags: 64,
+          });
         }
 
         const modal = new ModalBuilder()
@@ -233,22 +257,28 @@ client.on('interactionCreate', async (interaction) => {
               .setLabel('Preferred Time IST (e.g. 3:00 PM)')
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
-          ),
+          )
         );
 
         return interaction.showModal(modal);
       }
     }
-
   } catch (error) {
     console.error('Interaction error:', error);
+
     try {
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ content: '❌ Something went wrong. Please try again.' });
+        await interaction.editReply({
+          content: '❌ Something went wrong. Please try again.',
+        });
       } else {
-        await interaction.reply({ content: '❌ Something went wrong. Please try again.', flags: 64 });
+        await interaction.reply({
+          content: '❌ Something went wrong. Please try again.',
+          flags: 64,
+        });
       }
     } catch {}
+
     await log(client, 'Error', `Interaction failed: ${error.message}`, 0xff0000);
   }
 });
@@ -266,7 +296,9 @@ async function closeOnboarding(interaction) {
     `${channel.name} closed by **${interaction.user.username}**.`,
     0xffa500
   );
-  await interaction.editReply({ content: '✅ Onboarding channel will be deleted shortly.' });
+  await interaction.editReply({
+    content: '✅ Onboarding channel will be deleted shortly.',
+  });
 
   setTimeout(async () => {
     await channel.delete().catch(console.error);
@@ -288,7 +320,9 @@ client.on('guildMemberAdd', async (member) => {
     const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
     if (guestRole) await member.roles.add(guestRole).catch(console.error);
 
-    const welcomeChannel = member.guild.channels.cache.find(c => c.name === 'welcome');
+    const welcomeChannel = member.guild.channels.cache.find(
+      (c) => c.name === 'welcome'
+    );
     if (!welcomeChannel) return;
 
     let joinedUser = member.user;
@@ -305,8 +339,14 @@ client.on('guildMemberAdd', async (member) => {
       'new creator';
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('start_apply').setLabel('Apply as Creator').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('create_ticket').setLabel('Get Support').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder()
+        .setCustomId('start_apply')
+        .setLabel('Apply as Creator')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId('create_ticket')
+        .setLabel('Get Support')
+        .setStyle(ButtonStyle.Secondary)
     );
 
     await welcomeChannel.send({
