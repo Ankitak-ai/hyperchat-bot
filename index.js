@@ -134,7 +134,7 @@ client.on('interactionCreate', async (interaction) => {
 
     /* ---------- MODAL SUBMIT ---------- */
     if (interaction.isModalSubmit()) {
-      if (interaction.customId === 'apply_modal') {
+      if (interaction.customId === 'apply_modal' || interaction.customId === 'apply_modal_1' || interaction.customId === 'apply_modal_2') {
         return applyCommand(interaction);
       }
 
@@ -213,6 +213,10 @@ client.on('interactionCreate', async (interaction) => {
             flags: 64,
           });
         }
+        return applyCommand(interaction);
+      }
+
+      if (id === 'apply_step1' || id === 'cancel_apply') {
         return applyCommand(interaction);
       }
 
