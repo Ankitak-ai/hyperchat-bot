@@ -8,7 +8,7 @@ module.exports = async (interaction) => {
   const member = interaction.member;
   const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
 
-  if (!member.roles.cache.has(adminRole.id)) {
+  if (!adminRole || !member.roles.cache.has(adminRole.id)) {
     return interaction.editReply({ content: '❌ You do not have permission to use this command.' });
   }
 
@@ -49,12 +49,19 @@ module.exports = async (interaction) => {
     .update({ status: 'approved' })
     .eq('id', application.id);
 
-  // Delete onboarding channels if exist
+  // Sanitized username (same logic as approval.js) for channel names
+  const safeUsername = application.username
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 90);
+
+  // Delete onboarding channels if they exist
   const onboardingText = interaction.guild.channels.cache.find(
-    c => c.name === `onboarding-${application.username}`
+    c => c.name === `onboarding-${safeUsername}`
   );
   const onboardingVoice = interaction.guild.channels.cache.find(
-    c => c.name === `onboarding-voice-${application.username}`
+    c => c.name === `onboarding-voice-${safeUsername}`
   );
 
   if (onboardingText) {
@@ -65,11 +72,18 @@ module.exports = async (interaction) => {
     setTimeout(() => onboardingVoice.delete().catch(console.error), 10_000);
   }
 
-  // Create private hc- channel
+  // Resolve the "creators-chat" category (where private hc- channels belong)
+  const creatorsChatCategory =
+    interaction.guild.channels.cache.get(process.env.CREATORS_CHAT_CATEGORY_ID) ||
+    interaction.guild.channels.cache.find(
+      c => c.type === ChannelType.GuildCategory && c.name === 'creators-chat'
+    );
+
+  // Create private hc- channel under the creators-chat category
   const creatorChannel = await interaction.guild.channels.create({
-    name: `hc-${application.username}`,
+    name: `hc-${safeUsername}`,
     type: ChannelType.GuildText,
-    parent: process.env.CREATOR_CATEGORY_ID,
+    parent: creatorsChatCategory ? creatorsChatCategory.id : process.env.CREATOR_CATEGORY_ID,
     permissionOverwrites: [
       { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
@@ -99,17 +113,17 @@ module.exports = async (interaction) => {
     `Welcome aboard! 🚀`
   );
 
-  // Post in #announcements
+  // Post in #new-creators
   try {
-    const announcementsChannel = await interaction.client.channels.fetch(process.env.NEW_CREATORS_CHANNEL_ID);
+    const newCreatorsChannel = await interaction.client.channels.fetch(process.env.NEW_CREATORS_CHANNEL_ID);
     const embed = new EmbedBuilder()
       .setTitle('🎉 New Creator!')
       .setDescription(`Welcome <@${targetUser.id}> to the HyperChat creator family!`)
       .setColor(0x57f287)
       .setTimestamp();
-    await announcementsChannel.send({ embeds: [embed] });
+    await newCreatorsChannel.send({ embeds: [embed] });
   } catch {
-    console.warn('Could not post to #announcements.');
+    console.warn('Could not post to #new-creators.');
   }
 
   // DM the user
@@ -119,7 +133,8 @@ module.exports = async (interaction) => {
       'You now have access to:\n' +
       '🎙️ **Creator Lounge** — voice channel for creators\n' +
       '📢 **#announcements** — stay updated with HyperChat news\n' +
-      '💬 **#creator-chat** — chat with other creators\n' +
+      '💬 **#creators-chat** — chat with other creators\n' +
+      `🔒 **<#${creatorChannel.id}>** — your private channel with the team\n` +
       '🎫 **Support tickets** — get help anytime\n\n' +
       'Welcome to the team!'
     );
