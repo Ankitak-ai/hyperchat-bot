@@ -10,9 +10,6 @@ const {
   ButtonStyle,
 } = require('discord.js');
 
-// In-memory cache to pass data between Step 1 and Step 2
-const applicationCache = new Map();
-
 module.exports = async (interaction) => {
   // If triggered via slash (fallback)
   if (interaction.isChatInputCommand()) {
@@ -57,17 +54,11 @@ module.exports = async (interaction) => {
     return interaction.reply({ content: '❌ Application cancelled.', flags: 64 });
   }
 
-  // 3. Step 1 Button -> Show Modal 1
+  // 3. Apply Button -> Show the single application modal
   if (interaction.isButton() && interaction.customId === 'apply_step1') {
     const modal = new ModalBuilder()
-      .setCustomId('apply_modal_1')
-      .setTitle('Step 1: Creator Info');
-
-    const nameInput = new TextInputBuilder()
-      .setCustomId('name')
-      .setLabel('Your Name')
-      .setStyle(TextInputStyle.Short)
-      .setRequired(true);
+      .setCustomId('apply_modal')
+      .setTitle('HyperChat Creator Application');
 
     const youtubeInput = new TextInputBuilder()
       .setCustomId('youtube')
@@ -90,30 +81,6 @@ module.exports = async (interaction) => {
       .setPlaceholder('e.g. Gaming, Tech Reviews, Vlogs')
       .setRequired(true);
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(nameInput),
-      new ActionRowBuilder().addComponents(youtubeInput),
-      new ActionRowBuilder().addComponents(instagramInput),
-      new ActionRowBuilder().addComponents(nicheInput)
-    );
-
-    return interaction.showModal(modal);
-  }
-
-  // 4. Step 2 Button -> Show Modal 2
-  // (Discord cannot open a modal right after a modal submit, so we use this button as the bridge)
-  if (interaction.isButton() && interaction.customId === 'apply_step2') {
-    if (!applicationCache.has(interaction.user.id)) {
-      return interaction.reply({
-        content: '❌ Session expired. Please start over with the Apply button.',
-        flags: 64,
-      });
-    }
-
-    const modal2 = new ModalBuilder()
-      .setCustomId('apply_modal_2')
-      .setTitle('Step 2: Payout Info');
-
     const upiInput = new TextInputBuilder()
       .setCustomId('upi_id')
       .setLabel('UPI ID')
@@ -128,75 +95,49 @@ module.exports = async (interaction) => {
       .setPlaceholder('you@example.com')
       .setRequired(true);
 
-    modal2.addComponents(
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(youtubeInput),
+      new ActionRowBuilder().addComponents(instagramInput),
+      new ActionRowBuilder().addComponents(nicheInput),
       new ActionRowBuilder().addComponents(upiInput),
       new ActionRowBuilder().addComponents(emailInput)
     );
 
-    return interaction.showModal(modal2);
+    return interaction.showModal(modal);
   }
 
-  // 5. Modal 1 submit -> Validate YT link, cache data, show Step 2 button
-  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_1') {
-    const youtube = interaction.fields.getTextInputValue('youtube');
-
-    // Validate YouTube link
-    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i;
-    if (!ytRegex.test(youtube)) {
-      return interaction.reply({
-        content: '❌ Please provide a valid YouTube link (e.g., https://youtube.com/@yourchannel)',
-        flags: 64,
-      });
-    }
-
-    // Cache the data temporarily
-    applicationCache.set(interaction.user.id, {
-      name: interaction.fields.getTextInputValue('name'),
-      youtube: youtube,
-      instagram: interaction.fields.getTextInputValue('instagram'),
-      niche: interaction.fields.getTextInputValue('niche'),
-    });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('apply_step2')
-        .setLabel('Continue to Step 2: Payout Info')
-        .setStyle(ButtonStyle.Primary)
-    );
-
-    return interaction.reply({
-      content: '✅ Step 1 complete! Click the button below to enter your payout details.',
-      components: [row],
-      flags: 64,
-    });
-  }
-
-  // 6. Modal 2 submit -> Finalize & Save to DB
-  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal_2') {
+  // 4. Modal submission -> Validate & Save
+  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal') {
     await interaction.deferReply({ flags: 64 });
 
     const discordId = interaction.user.id;
     const username = interaction.user.username;
+    const displayName =
+      interaction.member?.nickname ||
+      interaction.user.globalName ||
+      username;
 
+    const youtube = interaction.fields.getTextInputValue('youtube');
+    const instagram = interaction.fields.getTextInputValue('instagram');
+    const niche = interaction.fields.getTextInputValue('niche');
     const upiId = interaction.fields.getTextInputValue('upi_id');
     const email = interaction.fields.getTextInputValue('email');
+
+    // Validate YouTube link
+    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i;
+    if (!ytRegex.test(youtube)) {
+      return interaction.editReply({
+        content: '❌ Please provide a valid YouTube link (e.g., https://youtube.com/@yourchannel)',
+      });
+    }
 
     // Validate Email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return interaction.editReply({ content: '❌ Please provide a valid email address.' });
-    }
-
-    // Retrieve cached data from Step 1
-    const cachedData = applicationCache.get(discordId);
-    if (!cachedData) {
       return interaction.editReply({
-        content: '❌ Session expired. Please start over with the Apply button.',
+        content: '❌ Please provide a valid email address.',
       });
     }
-    applicationCache.delete(discordId);
-
-    const { name, youtube, instagram, niche } = cachedData;
 
     // Rate limit check
     const { data: recent } = await supabase
@@ -226,7 +167,7 @@ module.exports = async (interaction) => {
     }
 
     const details = `
-**Name:** ${name}
+**Name:** ${displayName}
 **YouTube:** ${youtube}
 **Instagram:** ${instagram || 'Not provided'}
 **Niche:** ${niche}
