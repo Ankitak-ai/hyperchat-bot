@@ -216,7 +216,7 @@ client.on('interactionCreate', async (interaction) => {
         return applyCommand(interaction);
       }
 
-      if (id === 'apply_step1' || id === 'cancel_apply') {
+      if (id === 'apply_step1' || id === 'apply_step2' || id === 'cancel_apply') {
         return applyCommand(interaction);
       }
 
