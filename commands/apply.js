@@ -1,253 +1,384 @@
-const supabase = require('../supabase');
-const { log } = require('../utils/logger');
+require('dotenv').config();
 const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder,
-  EmbedBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } = require('discord.js');
 
-module.exports = async (interaction) => {
-  // If triggered via slash (fallback)
-  if (interaction.isChatInputCommand()) {
-    return interaction.reply({
-      content: 'Use the Apply button in #welcome.',
-      flags: 64,
-    });
+const applyCommand = require('./commands/apply');
+const activateCommand = require('./commands/activate');
+const setupChannelsCommand = require('./commands/setup-channels');
+const announceCommand = require('./commands/announce');
+const approvalHandler = require('./handlers/approval');
+const ticketHandler = require('./handlers/ticket');
+const { log } = require('./utils/logger');
+const { checkRateLimit, formatTime } = require('./utils/rateLimit');
+const { runCleanup } = require('./utils/cleanup');
+const { updateStatus, recordBotStart } = require('./utils/status');
+
+/* -------------------- HELPERS -------------------- */
+
+function getDisplayName(member) {
+  return (
+    member?.nickname ||
+    member?.user?.globalName ||
+    member?.user?.username ||
+    member?.user?.tag ||
+    'new creator'
+  );
+}
+
+/* -------------------- CLIENT -------------------- */
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Channel],
+});
+
+/* -------------------- ENV VALIDATION -------------------- */
+
+const requiredEnv = [
+  'DISCORD_TOKEN',
+  'CLIENT_ID',
+  'GUILD_ID',
+  'APPLICATION_CHANNEL_ID',
+  'SUPPORT_CATEGORY_ID',
+  'CREATOR_ROLE_ID',
+  'CREATOR_PENDING_ROLE_ID',
+  'LOGS_CHANNEL_ID',
+  'ANNOUNCEMENTS_CHANNEL_ID',
+  'GUEST_ROLE_ID',
+  'SCHEDULED_ROLE_ID',
+  'SCHEDULING_CHANNEL_ID',
+  'ONBOARDING_CATEGORY_ID',
+  'STATUS_CHANNEL_ID',
+  'CREATOR_CATEGORY_ID',
+];
+
+requiredEnv.forEach((key) => {
+  if (!process.env[key]) {
+    console.error(`Missing ENV: ${key}`);
+    process.exit(1);
   }
+});
 
-  // 1. Initial Button Click -> Show Info Screen
-  if (interaction.isButton() && interaction.customId === 'start_apply') {
-    const infoEmbed = new EmbedBuilder()
-      .setTitle('🚀 Become a HyperChat Creator')
-      .setColor(0x5865f2)
-      .setDescription(
-        'Welcome to HyperChat! Before you apply, please review our platform benefits and requirements:\n\n' +
-        '💰 **Revenue Share:** 89% goes directly to you, 11% platform fee.\n' +
-        '📅 **Payouts:** Processed in the first week of every month.\n' +
-        '🏦 **Requirements:** A valid UPI ID and Email address are required for payouts.\n' +
-        '▶️ **YouTube:** You must provide a valid YouTube channel/video link.\n' +
-        '📸 **Instagram:** Optional, but helps us know you better!\n\n' +
-        'Click below to start your application.'
-      )
-      .setFooter({ text: 'HyperChat • Built for Creators' });
+/* -------------------- READY -------------------- */
 
-    const infoRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('apply_step1')
-        .setLabel('I Understand — Apply')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId('cancel_apply')
-        .setLabel('Cancel')
-        .setStyle(ButtonStyle.Secondary)
+client.once('clientReady', async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+
+  await recordBotStart();
+
+  const guild = await client.guilds.fetch(process.env.GUILD_ID);
+  const welcomeChannel = guild.channels.cache.find((c) => c.name === 'welcome');
+
+  if (welcomeChannel) {
+    const messages = await welcomeChannel.messages.fetch({ limit: 10 });
+    const exists = messages.find(
+      (m) => m.author.id === client.user.id && m.components.length > 0
     );
 
-    return interaction.reply({ embeds: [infoEmbed], components: [infoRow], flags: 64 });
+    if (!exists) {
+      const embed = new EmbedBuilder()
+        .setTitle('🚀 Welcome to HyperChat')
+        .setDescription('Apply to become a creator or get support below.')
+        .setColor(0x5865f2);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('start_apply')
+          .setLabel('Apply as Creator')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('create_ticket')
+          .setLabel('Get Support')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      await welcomeChannel.send({ embeds: [embed], components: [row] });
+    }
   }
 
-  // 2. Cancel Button
-  if (interaction.isButton() && interaction.customId === 'cancel_apply') {
-    return interaction.reply({ content: '❌ Application cancelled.', flags: 64 });
-  }
+  await updateStatus(client);
+  setInterval(() => updateStatus(client), 5 * 60 * 1000);
+  setInterval(() => runCleanup(client), 6 * 60 * 60 * 1000);
+});
 
-  // 3. Apply Button -> Show the single application modal
-  if (interaction.isButton() && interaction.customId === 'apply_step1') {
-    const modal = new ModalBuilder()
-      .setCustomId('apply_modal')
-      .setTitle('HyperChat Creator Application');
+/* -------------------- INTERACTION ROUTER -------------------- */
 
-    const youtubeInput = new TextInputBuilder()
-      .setCustomId('youtube')
-      .setLabel('YouTube Channel Link')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('https://youtube.com/@yourchannel')
-      .setRequired(true);
-
-    const instagramInput = new TextInputBuilder()
-      .setCustomId('instagram')
-      .setLabel('Instagram Handle (Optional)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('@handle')
-      .setRequired(false);
-
-    const nicheInput = new TextInputBuilder()
-      .setCustomId('niche')
-      .setLabel('Your Content Niche')
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('e.g. Gaming, Tech Reviews, Vlogs')
-      .setRequired(true);
-
-    const upiInput = new TextInputBuilder()
-      .setCustomId('upi_id')
-      .setLabel('UPI ID')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('yourname@upi')
-      .setRequired(true);
-
-    const emailInput = new TextInputBuilder()
-      .setCustomId('email')
-      .setLabel('Email Address')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('you@example.com')
-      .setRequired(true);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(youtubeInput),
-      new ActionRowBuilder().addComponents(instagramInput),
-      new ActionRowBuilder().addComponents(nicheInput),
-      new ActionRowBuilder().addComponents(upiInput),
-      new ActionRowBuilder().addComponents(emailInput)
-    );
-
-    return interaction.showModal(modal);
-  }
-
-  // 4. Modal submission -> Validate & Save
-  if (interaction.isModalSubmit() && interaction.customId === 'apply_modal') {
-    await interaction.deferReply({ flags: 64 });
-
-    const discordId = interaction.user.id;
-    const username = interaction.user.username;
-    const displayName =
-      interaction.member?.nickname ||
-      interaction.user.globalName ||
-      username;
-
-    const youtube = interaction.fields.getTextInputValue('youtube');
-    const instagram = interaction.fields.getTextInputValue('instagram');
-    const niche = interaction.fields.getTextInputValue('niche');
-    const upiId = interaction.fields.getTextInputValue('upi_id');
-    const email = interaction.fields.getTextInputValue('email');
-
-    // Validate YouTube link
-    const ytRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i;
-    if (!ytRegex.test(youtube)) {
-      return interaction.editReply({
-        content: '❌ Please provide a valid YouTube link (e.g., https://youtube.com/@yourchannel)',
-      });
+client.on('interactionCreate', async (interaction) => {
+  try {
+    /* ---------- SLASH COMMANDS ---------- */
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'setup-channel') {
+        return require('./commands/setup-channel')(interaction);
+      }
+      if (interaction.commandName === 'apply') return applyCommand(interaction);
+      if (interaction.commandName === 'activate') return activateCommand(interaction);
+      if (interaction.commandName === 'setup-channels') return setupChannelsCommand(interaction);
+      if (interaction.commandName === 'announce') return announceCommand(interaction);
     }
 
-    // Validate Email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return interaction.editReply({
-        content: '❌ Please provide a valid email address.',
-      });
-    }
+    /* ---------- MODAL SUBMIT ---------- */
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === 'apply_modal' || interaction.customId === 'apply_modal_1' || interaction.customId === 'apply_modal_2') {
+        return applyCommand(interaction);
+      }
 
-    // Rate limit check
-    const { data: recent } = await supabase
-      .from('creator_applications')
-      .select('created_at, status')
-      .eq('discord_id', discordId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      if (interaction.customId === 'announce_modal') {
+        return announceCommand(interaction);
+      }
 
-    if (recent) {
-      if (['pending', 'approved_pending'].includes(recent.status)) {
+      if (interaction.customId.startsWith('reject_reason_')) {
+        return approvalHandler(interaction);
+      }
+
+      if (interaction.customId.startsWith('schedule_modal_')) {
+        const userId = interaction.customId.replace('schedule_modal_', '');
+        const date = interaction.fields.getTextInputValue('preferred_date');
+        const time = interaction.fields.getTextInputValue('preferred_time');
+
+        await interaction.deferReply({ flags: 64 });
+
+        const guild = await client.guilds.fetch(process.env.GUILD_ID);
+        const member = await guild.members.fetch(userId).catch(() => null);
+
+        if (member) {
+          const scheduledRole = guild.roles.cache.get(process.env.SCHEDULED_ROLE_ID);
+          if (scheduledRole && !member.roles.cache.has(scheduledRole.id)) {
+            await member.roles.add(scheduledRole);
+          }
+        }
+
+        const schedulingChannel = await client.channels.fetch(
+          process.env.SCHEDULING_CHANNEL_ID
+        );
+        const scheduleDisplayName = member ? getDisplayName(member) : 'Unknown user';
+
+        await schedulingChannel.send({
+          embeds: [
+            {
+              title: '📅 New Onboarding Call Request',
+              color: 0x5865f2,
+              fields: [
+                {
+                  name: 'User',
+                  value: `${scheduleDisplayName}\nID: ${userId}`,
+                  inline: true,
+                },
+                { name: 'Date', value: date, inline: true },
+                { name: 'Time (IST)', value: time, inline: true },
+              ],
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        });
+
+        await log(
+          client,
+          'Call Scheduled',
+          `${scheduleDisplayName} (${userId}) requested a call on ${date} at ${time} IST`,
+          0x00ff00
+        );
+
         return interaction.editReply({
-          content: '❌ You already have an active application.',
+          content:
+            '✅ Your onboarding call has been scheduled! Our team will confirm shortly.',
         });
       }
+    }
 
-      if (recent.status === 'rejected') {
-        const hoursSince =
-          (Date.now() - new Date(recent.created_at)) / (1000 * 60 * 60);
-        if (hoursSince < 24) {
-          return interaction.editReply({
-            content: '❌ You can reapply after 24 hours.',
+    /* ---------- BUTTONS ---------- */
+    if (interaction.isButton()) {
+      const id = interaction.customId;
+
+      if (id === 'start_apply') {
+        const remaining = checkRateLimit(interaction.user.id, 'apply', 60 * 1000);
+        if (remaining) {
+          return interaction.reply({
+            content: `⏳ Please wait **${formatTime(remaining)}** before applying again.`,
+            flags: 64,
           });
         }
+        return applyCommand(interaction);
+      }
+
+      if (id === 'apply_step1' || id === 'apply_step2' || id === 'cancel_apply') {
+        return applyCommand(interaction);
+      }
+
+      if (id === 'create_ticket') {
+        const remaining = checkRateLimit(interaction.user.id, 'ticket', 30 * 1000);
+        if (remaining) {
+          return interaction.reply({
+            content: `⏳ Please wait **${formatTime(remaining)}** before opening another ticket.`,
+            flags: 64,
+          });
+        }
+        return ticketHandler.createTicket(interaction);
+      }
+
+      if (id.startsWith('close_ticket')) return ticketHandler.closeTicket(interaction);
+      if (id.startsWith('approve_') || id.startsWith('reject_')) {
+        return approvalHandler(interaction);
+      }
+      if (id.startsWith('close_onboarding_')) return closeOnboarding(interaction);
+
+      if (id.startsWith('schedule_')) {
+        const userId = id.replace('schedule_', '');
+
+        if (interaction.user.id !== userId) {
+          return interaction.reply({
+            content: '❌ This button is not for you.',
+            flags: 64,
+          });
+        }
+
+        const modal = new ModalBuilder()
+          .setCustomId(`schedule_modal_${userId}`)
+          .setTitle('Schedule Your Onboarding Call');
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('preferred_date')
+              .setLabel('Preferred Date (e.g. 28 March 2026)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('preferred_time')
+              .setLabel('Preferred Time IST (e.g. 3:00 PM)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+
+        return interaction.showModal(modal);
       }
     }
+  } catch (error) {
+    console.error('Interaction error:', error);
 
-    const details = `
-**Name:** ${displayName}
-**YouTube:** ${youtube}
-**Instagram:** ${instagram || 'Not provided'}
-**Niche:** ${niche}
-**UPI ID:** ${upiId}
-**Email:** ${email}
-`;
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: '❌ Something went wrong. Please try again.',
+        });
+      } else {
+        await interaction.reply({
+          content: '❌ Something went wrong. Please try again.',
+          flags: 64,
+        });
+      }
+    } catch {}
 
-    const { error } = await supabase
-      .from('creator_applications')
-      .insert({
-        discord_id: discordId,
-        username,
-        details,
-        email,
-        upi_id: upiId,
-        status: 'pending',
-      });
+    await log(client, 'Error', `Interaction failed: ${error.message}`, 0xff0000);
+  }
+});
 
-    if (error) {
-      await log(
-        interaction.client,
-        'Application Error',
-        `${username} failed: ${error.message}`,
-        0xff0000
-      );
-      return interaction.editReply({
-        content: '❌ Submission failed.',
-      });
-    }
+/* -------------------- CLOSE ONBOARDING -------------------- */
 
-    // Assign Guest role
-    const guestRole = interaction.guild.roles.cache.get(
-      process.env.GUEST_ROLE_ID
+async function closeOnboarding(interaction) {
+  await interaction.deferReply({ flags: 64 });
+  const channel = interaction.channel;
+
+  await channel.send('✅ Onboarding channel closed. Deleting in 10 seconds...');
+  await log(
+    interaction.client,
+    'Onboarding Closed',
+    `${channel.name} closed by **${interaction.user.username}**.`,
+    0xffa500
+  );
+  await interaction.editReply({
+    content: '✅ Onboarding channel will be deleted shortly.',
+  });
+
+  setTimeout(async () => {
+    await channel.delete().catch(console.error);
+  }, 10_000);
+}
+
+/* -------------------- MEMBER JOIN -------------------- */
+
+const recentJoins = new Set();
+
+client.on('guildMemberAdd', async (member) => {
+  if (recentJoins.has(member.id)) return;
+  recentJoins.add(member.id);
+  setTimeout(() => recentJoins.delete(member.id), 30_000);
+
+  console.log(`guildMemberAdd fired: ${member.user?.username || member.id}`);
+
+  try {
+    const guestRole = member.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
+    if (guestRole) await member.roles.add(guestRole).catch(console.error);
+
+    const welcomeChannel = member.guild.channels.cache.find(
+      (c) => c.name === 'welcome'
     );
-    if (guestRole && !interaction.member.roles.cache.has(guestRole.id)) {
-      await interaction.member.roles.add(guestRole).catch(console.error);
-    }
-
-    // Send to applications channel
-    const channel = await interaction.client.channels.fetch(
-      process.env.APPLICATION_CHANNEL_ID
-    );
-
-    const embed = new EmbedBuilder()
-      .setTitle('New Creator Application')
-      .setColor(0x5865f2)
-      .setDescription(details)
-      .addFields(
-        { name: 'Username', value: username, inline: true },
-        { name: 'Discord ID', value: discordId, inline: true },
-        { name: 'Email', value: email, inline: true },
-        { name: 'UPI ID', value: upiId, inline: true }
-      )
-      .setTimestamp();
+    if (!welcomeChannel) return;
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`approve_${discordId}`)
-        .setLabel('Approve')
-        .setStyle(ButtonStyle.Success),
+        .setCustomId('start_apply')
+        .setLabel('Apply as Creator')
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId(`reject_${discordId}`)
-        .setLabel('Reject')
-        .setStyle(ButtonStyle.Danger)
+        .setCustomId('create_ticket')
+        .setLabel('Get Support')
+        .setStyle(ButtonStyle.Secondary)
     );
 
-    await channel.send({
-      embeds: [embed],
+    await welcomeChannel.send({
+      embeds: [
+        {
+          color: 0x5865f2,
+          description: [
+            `## 👋 Welcome, <@${member.id}>!`,
+            ``,
+            `You've just joined **HyperChat** — a platform built for creators.`,
+            ``,
+            `**What we offer:**`,
+            `🔊 Live TTS & Audio Alerts`,
+            `📺 Onscreen Alerts & Overlays`,
+            `💳 Seamless Razorpay Payments`,
+            `🎯 Creator Tools & Support`,
+            ``,
+            `> Ready to get started? Use the buttons below!`,
+          ].join('\n'),
+          footer: { text: 'HyperChat • Built for Creators' },
+          timestamp: new Date().toISOString(),
+        },
+      ],
       components: [row],
     });
 
     await log(
-      interaction.client,
-      'Application Submitted',
-      `${username} applied`,
-      0x5865f2
+      client,
+      'Member Joined',
+      `<@${member.id}> joined the server.`,
+      0x57f287
     );
-
-    return interaction.editReply({
-      content: '✅ Application submitted successfully. Please wait for a review!',
-    });
+  } catch (err) {
+    console.error('guildMemberAdd error:', err);
   }
-};
+});
+
+/* -------------------- START -------------------- */
+
+client.login(process.env.DISCORD_TOKEN);
