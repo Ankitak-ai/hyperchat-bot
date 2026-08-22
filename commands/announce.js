@@ -31,7 +31,7 @@ module.exports = async (interaction) => {
 
     const bodyInput = new TextInputBuilder()
       .setCustomId('announcement_body')
-      .setLabel('Announcement (line breaks & **markdown** supported)')
+      .setLabel('Announcement (multi-line supported)')
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(true)
       .setMaxLength(4000)
