@@ -17,6 +17,7 @@ async function getAvailableOnboardingCategory(guild) {
     }
   }
 
+  // All known categories full (or misconfigured) — fall back to the first one.
   return categoryIds[0];
 }
 
@@ -26,6 +27,7 @@ module.exports = async (interaction) => {
   const isReject = customId.startsWith('reject_');
   const isRejectSubmit = customId.startsWith('reject_reason_');
 
+  // Handle rejection modal submission
   if (isRejectSubmit) {
     const discordId = customId.split('_')[2];
     const reason = interaction.fields.getTextInputValue('rejection_reason');
@@ -52,7 +54,7 @@ module.exports = async (interaction) => {
     if (member) {
       const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
       if (guestRole && member.roles.cache.has(guestRole.id)) {
-        await member.roles.remove(guestRole);
+        await member.roles.remove(guestRole).catch(console.error);
       }
       try {
         await member.user.send(
@@ -68,7 +70,7 @@ module.exports = async (interaction) => {
     await interaction.message.edit({
       content: `❌ Rejected by ${interaction.user.username} — Reason: ${reason}`,
       components: [],
-    });
+    }).catch(console.error);
 
     await log(
       interaction.client,
@@ -86,6 +88,7 @@ module.exports = async (interaction) => {
 
   const discordId = customId.split('_')[1];
 
+  // Show modal for rejection reason
   if (isReject) {
     const modal = new ModalBuilder()
       .setCustomId(`reject_reason_${discordId}`)
@@ -127,23 +130,22 @@ module.exports = async (interaction) => {
 
     const creatorPendingRole = interaction.guild.roles.cache.get(process.env.CREATOR_PENDING_ROLE_ID);
     const guestRole = interaction.guild.roles.cache.get(process.env.GUEST_ROLE_ID);
-    const adminRole = interaction.guild.roles.cache.find(r => r.name === 'Admin');
-    const reviewerRole = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
 
     if (!creatorPendingRole) {
       return interaction.editReply({ content: '❌ Creator Pending role not found.' });
     }
 
     if (guestRole && member.roles.cache.has(guestRole.id)) {
-      await member.roles.remove(guestRole);
+      await member.roles.remove(guestRole).catch(console.error);
     }
-    await member.roles.add(creatorPendingRole);
+    await member.roles.add(creatorPendingRole).catch(console.error);
 
     await supabase
       .from('creator_applications')
       .update({ status: 'approved_pending' })
       .eq('id', application.id);
 
+    // DM the applicant
     try {
       const scheduleRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -164,65 +166,93 @@ module.exports = async (interaction) => {
 
     const targetCategoryId = await getAvailableOnboardingCategory(interaction.guild);
 
-    // FIX: Sanitize username to remove underscores and invalid characters
+    // Sanitize username for valid Discord channel names
     const safeUsername = application.username
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, '-')
       .replace(/-+/g, '-')
       .substring(0, 90);
 
-    const onboardingChannel = await interaction.guild.channels.create({
-      name: `onboarding-${safeUsername}`,
-      type: ChannelType.GuildText,
-      parent: targetCategoryId,
-      permissionOverwrites: [
-        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-        { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
-      ],
-    });
+    let onboardingChannel;
+    try {
+      onboardingChannel = await interaction.guild.channels.create({
+        name: `onboarding-${safeUsername}`,
+        type: ChannelType.GuildText,
+        parent: targetCategoryId,
+        permissionOverwrites: [
+          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+          { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory] },
+        ],
+      });
+    } catch (err) {
+      console.error('Approval onboarding text channel CREATE error:', err);
+      return interaction.editReply({ content: `❌ Failed to create onboarding channel: ${err.message}` });
+    }
 
     const adminRole2 = interaction.guild.roles.cache.find(r => r.name === 'Admin');
     const reviewerRole2 = interaction.guild.roles.cache.find(r => r.name === 'Reviewer');
 
-    if (adminRole2) await onboardingChannel.permissionOverwrites.create(adminRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
-    if (reviewerRole2) await onboardingChannel.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+    if (adminRole2) await onboardingChannel.permissionOverwrites.create(adminRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(console.error);
+    if (reviewerRole2) await onboardingChannel.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(console.error);
 
-    const onboardingVoice = await interaction.guild.channels.create({
-      name: `onboarding-voice-${safeUsername}`,
-      type: ChannelType.GuildVoice,
-      parent: targetCategoryId,
-      permissionOverwrites: [
-        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
-        { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
-        { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.ManageChannels] },
-      ],
-    });
+    let onboardingVoice;
+    try {
+      onboardingVoice = await interaction.guild.channels.create({
+        name: `onboarding-voice-${safeUsername}`,
+        type: ChannelType.GuildVoice,
+        parent: targetCategoryId,
+        permissionOverwrites: [
+          { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+          { id: discordId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
+          { id: interaction.guild.members.me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.ManageChannels] },
+        ],
+      });
+    } catch (err) {
+      console.error('Approval onboarding voice channel CREATE error:', err);
+    }
 
-    if (adminRole2) await onboardingVoice.permissionOverwrites.create(adminRole2, { ViewChannel: true, Connect: true, Speak: true });
-    if (reviewerRole2) await onboardingVoice.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, Connect: true, Speak: true });
+    if (onboardingVoice) {
+      if (adminRole2) await onboardingVoice.permissionOverwrites.create(adminRole2, { ViewChannel: true, Connect: true, Speak: true }).catch(console.error);
+      if (reviewerRole2) await onboardingVoice.permissionOverwrites.create(reviewerRole2, { ViewChannel: true, Connect: true, Speak: true }).catch(console.error);
+    }
 
-    const closeRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`close_onboarding_${discordId}`)
-        .setLabel('Close Onboarding')
-        .setStyle(ButtonStyle.Danger)
-    );
+    // Send the welcome message inside the onboarding channel (PROTECTED)
+    let messageSent = false;
+    try {
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`close_onboarding_${discordId}`)
+          .setLabel('Close Onboarding')
+          .setStyle(ButtonStyle.Danger)
+      );
 
-    await onboardingChannel.send({
-      content:
-        `👋 Welcome <@${discordId}>! Your application has been approved.\n\n` +
-        `This is your onboarding channel. Our team will use this space to guide you through the setup after your scheduled call.\n\n` +
-        `**Check your DMs** to schedule your onboarding call.\n\n` +
-        `You also have access to the voice channel **onboarding-voice-${safeUsername}** above for your call.\n\n` +
-        `An admin will close this channel once onboarding is complete.`,
-      components: [closeRow],
-    });
+      await onboardingChannel.send({
+        content:
+          `👋 Welcome <@${discordId}>! Your application has been approved.\n\n` +
+          `This is your onboarding channel. Our team will use this space to guide you through the setup after your scheduled call.\n\n` +
+          `**Check your DMs** to schedule your onboarding call.\n\n` +
+          (onboardingVoice
+            ? `You also have access to the voice channel **onboarding-voice-${safeUsername}** above for your call.\n\n`
+            : '') +
+          `An admin will close this channel once onboarding is complete.`,
+        components: [closeRow],
+      });
+      messageSent = true;
+    } catch (err) {
+      console.error('Approval onboarding channel SEND error:', err);
+      await log(
+        interaction.client,
+        'Onboarding Message Failed',
+        `Approved **${application.username}** and created <#${onboardingChannel.id}>, but the welcome message failed to send.\n**Reason:** ${err.message}\n\n⚠️ Check the bot has **Send Messages** permission in the onboarding category (<#${targetCategoryId}>).`,
+        0xffa500
+      );
+    }
 
     await interaction.message.edit({
       content: `✅ Approved by ${interaction.user.username} — DM sent + onboarding channels created`,
       components: [],
-    });
+    }).catch(console.error);
 
     await log(
       interaction.client,
@@ -232,7 +262,9 @@ module.exports = async (interaction) => {
     );
 
     return interaction.editReply({
-      content: `✅ Approved ${application.username}! DM sent + onboarding channels created: <#${onboardingChannel.id}>`,
+      content: messageSent
+        ? `✅ Approved ${application.username}! DM sent + onboarding channels created: <#${onboardingChannel.id}>`
+        : `⚠️ Approved ${application.username} and created <#${onboardingChannel.id}>, but the welcome message failed to send (check bot permissions / logs).`,
     });
   }
 };
