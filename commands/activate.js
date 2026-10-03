@@ -39,10 +39,10 @@ module.exports = async (interaction) => {
     return interaction.editReply({ content: '❌ Could not find required roles.' });
   }
 
-  if (creatorPendingRole && targetMember.roles.cache.has(creatorPendingRole.id)) await targetMember.roles.remove(creatorPendingRole);
-  if (scheduledRole && targetMember.roles.cache.has(scheduledRole.id)) await targetMember.roles.remove(scheduledRole);
-  if (guestRole && targetMember.roles.cache.has(guestRole.id)) await targetMember.roles.remove(guestRole);
-  await targetMember.roles.add(creatorRole);
+  if (creatorPendingRole && targetMember.roles.cache.has(creatorPendingRole.id)) await targetMember.roles.remove(creatorPendingRole).catch(console.error);
+  if (scheduledRole && targetMember.roles.cache.has(scheduledRole.id)) await targetMember.roles.remove(scheduledRole).catch(console.error);
+  if (guestRole && targetMember.roles.cache.has(guestRole.id)) await targetMember.roles.remove(guestRole).catch(console.error);
+  await targetMember.roles.add(creatorRole).catch(console.error);
 
   await supabase
     .from('creator_applications')
@@ -65,7 +65,7 @@ module.exports = async (interaction) => {
   );
 
   if (onboardingText) {
-    await onboardingText.send('✅ Onboarding complete! This channel will be deleted in 10 seconds.');
+    await onboardingText.send('✅ Onboarding complete! This channel will be deleted in 10 seconds.').catch(console.error);
     setTimeout(() => onboardingText.delete().catch(console.error), 10_000);
   }
   if (onboardingVoice) {
@@ -79,39 +79,66 @@ module.exports = async (interaction) => {
       c => c.type === ChannelType.GuildCategory && c.name === 'creators-chat'
     );
 
-  // Create private hc- channel under the creators-chat category
-  const creatorChannel = await interaction.guild.channels.create({
-    name: `hc-${safeUsername}`,
-    type: ChannelType.GuildText,
-    parent: creatorsChatCategory ? creatorsChatCategory.id : process.env.CREATOR_CATEGORY_ID,
-    permissionOverwrites: [
-      { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      {
-        id: targetUser.id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-      },
-      {
-        id: interaction.guild.members.me.id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
-      },
-    ],
-  });
-
-  if (adminRole) {
-    await creatorChannel.permissionOverwrites.create(adminRole, {
-      ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+  let creatorChannel;
+  try {
+    creatorChannel = await interaction.guild.channels.create({
+      name: `hc-${safeUsername}`,
+      type: ChannelType.GuildText,
+      parent: creatorsChatCategory ? creatorsChatCategory.id : process.env.CREATOR_CATEGORY_ID,
+      permissionOverwrites: [
+        { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: targetUser.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+        },
+        {
+          id: interaction.guild.members.me.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ManageChannels,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        },
+      ],
     });
+
+    if (adminRole) {
+      await creatorChannel.permissionOverwrites
+        .create(adminRole, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+        })
+        .catch(console.error);
+    }
+  } catch (err) {
+    console.error('Activate channel CREATE error:', err);
+    return interaction.editReply({ content: `❌ Failed to create channel: ${err.message}` });
   }
 
-  await creatorChannel.send(
-    `👋 Hey <@${targetUser.id}>! Welcome to your private HyperChat channel.\n\n` +
-    `This is your dedicated space to connect with the HyperChat team. Use this channel for:\n` +
-    `📌 Setup help\n` +
-    `🐛 Issues or bugs\n` +
-    `💡 Feature requests\n` +
-    `📢 Important updates from the team\n\n` +
-    `Welcome aboard! 🚀`
-  );
+  // Send the welcome message inside the new channel (protected)
+  let messageSent = false;
+  try {
+    await creatorChannel.send(
+      `👋 Hey <@${targetUser.id}>! Welcome to your private HyperChat channel.\n\n` +
+      `This is your dedicated space to connect with the HyperChat team. Use this channel for:\n` +
+      `📌 Setup help\n` +
+      `🐛 Issues or bugs\n` +
+      `💡 Feature requests\n` +
+      `📢 Important updates from the team\n\n` +
+      `Welcome aboard! 🚀`
+    );
+    messageSent = true;
+  } catch (err) {
+    console.error('Activate channel SEND error:', err);
+    await log(
+      interaction.client,
+      'Channel Message Failed',
+      `Activated **${targetUser.username}** and created <#${creatorChannel.id}>, but the welcome message failed to send.\n**Reason:** ${err.message}\n\n⚠️ Check the bot has **Send Messages** permission in the creators-chat category.`,
+      0xffa500
+    );
+  }
 
   // Post in #new-creators
   try {
@@ -122,8 +149,8 @@ module.exports = async (interaction) => {
       .setColor(0x57f287)
       .setTimestamp();
     await newCreatorsChannel.send({ embeds: [embed] });
-  } catch {
-    console.warn('Could not post to #new-creators.');
+  } catch (err) {
+    console.warn('Could not post to #new-creators:', err.message);
   }
 
   // DM the user
@@ -150,6 +177,8 @@ module.exports = async (interaction) => {
   );
 
   return interaction.editReply({
-    content: `✅ Successfully activated ${targetUser.username} as a Creator! Private channel: <#${creatorChannel.id}>`,
+    content: messageSent
+      ? `✅ Activated ${targetUser.username} as a Creator! Private channel: <#${creatorChannel.id}>`
+      : `⚠️ Activated ${targetUser.username} and created <#${creatorChannel.id}>, but the welcome message failed to send (check bot permissions / logs).`,
   });
 };
