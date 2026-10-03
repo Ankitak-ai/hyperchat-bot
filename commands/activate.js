@@ -10,6 +10,32 @@ function sanitize(name) {
     .substring(0, 90);
 }
 
+function getAvailableCreatorsChatCategory(guild) {
+  const categoryIds = [
+    process.env.CREATORS_CHAT_CATEGORY_ID,
+    process.env.CREATORS_CHAT_CATEGORY_ID_2,
+    process.env.CREATORS_CHAT_CATEGORY_ID_3,
+  ].filter(Boolean);
+
+  // Fallback: find by name if env vars are missing
+  if (categoryIds.length === 0) {
+    guild.channels.cache
+      .filter(c => c.type === ChannelType.GuildCategory && c.name.startsWith('creators-chat'))
+      .forEach(c => categoryIds.push(c.id));
+  }
+
+  for (const catId of categoryIds) {
+    const category = guild.channels.cache.get(catId);
+    if (!category) continue;
+    const childCount = guild.channels.cache.filter(ch => ch.parentId === catId).size;
+    if (childCount < 50) {
+      return catId;
+    }
+  }
+
+  return categoryIds[0] || process.env.CREATOR_CATEGORY_ID;
+}
+
 module.exports = async (interaction) => {
   await interaction.deferReply({ flags: 64 });
 
@@ -63,7 +89,6 @@ module.exports = async (interaction) => {
       .eq('id', application.id);
     if (error) console.error('Supabase update error:', error);
   } else {
-    // No DB record found. Insert a manual record to keep DB consistent.
     manualActivation = true;
     const { error: insertError } = await supabase.from('creator_applications').insert({
       discord_id: targetUser.id,
@@ -84,7 +109,6 @@ module.exports = async (interaction) => {
     c => c.type === ChannelType.GuildVoice && c.name === `onboarding-voice-${safeUsername}`
   );
 
-  // Fallback: find by permission overwrite if name doesn't match
   if (!onboardingText) {
     onboardingText = interaction.guild.channels.cache.find(
       c =>
@@ -111,19 +135,15 @@ module.exports = async (interaction) => {
     setTimeout(() => onboardingVoice.delete().catch(console.error), 10_000);
   }
 
-  // 4. Create private hc- channel
-  const creatorsChatCategory =
-    interaction.guild.channels.cache.get(process.env.CREATORS_CHAT_CATEGORY_ID) ||
-    interaction.guild.channels.cache.find(
-      c => c.type === ChannelType.GuildCategory && c.name === 'creators-chat'
-    );
+  // 4. Create private hc- channel in an available category
+  const targetCategoryId = getAvailableCreatorsChatCategory(interaction.guild);
 
   let creatorChannel;
   try {
     creatorChannel = await interaction.guild.channels.create({
       name: `hc-${safeUsername}`,
       type: ChannelType.GuildText,
-      parent: creatorsChatCategory ? creatorsChatCategory.id : process.env.CREATOR_CATEGORY_ID,
+      parent: targetCategoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
