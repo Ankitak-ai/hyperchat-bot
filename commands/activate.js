@@ -76,23 +76,30 @@ module.exports = async (interaction) => {
 
   // 3. Cleanup onboarding channels (if any exist)
   const safeUsername = sanitize(applicationUsername);
-  
+
   let onboardingText = interaction.guild.channels.cache.find(
-    c => c.name === `onboarding-${safeUsername}` && c.isTextBased()
+    c => c.type === ChannelType.GuildText && c.name === `onboarding-${safeUsername}`
   );
   let onboardingVoice = interaction.guild.channels.cache.find(
-    c => c.name === `onboarding-voice-${safeUsername}` && c.isVoice()
+    c => c.type === ChannelType.GuildVoice && c.name === `onboarding-voice-${safeUsername}`
   );
 
   // Fallback: find by permission overwrite if name doesn't match
   if (!onboardingText) {
     onboardingText = interaction.guild.channels.cache.find(
-      c => c.isTextBased() && c.name.startsWith('onboarding-') && !c.name.includes('voice') && c.permissionOverwrites.cache.has(targetUser.id)
+      c =>
+        c.type === ChannelType.GuildText &&
+        c.name.startsWith('onboarding-') &&
+        !c.name.startsWith('onboarding-voice-') &&
+        c.permissionOverwrites.cache.has(targetUser.id)
     );
   }
   if (!onboardingVoice) {
     onboardingVoice = interaction.guild.channels.cache.find(
-      c => c.isVoice() && c.name.startsWith('onboarding-voice-') && c.permissionOverwrites.cache.has(targetUser.id)
+      c =>
+        c.type === ChannelType.GuildVoice &&
+        c.name.startsWith('onboarding-voice-') &&
+        c.permissionOverwrites.cache.has(targetUser.id)
     );
   }
 
