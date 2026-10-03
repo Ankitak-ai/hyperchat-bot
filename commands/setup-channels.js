@@ -1,6 +1,39 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { log } = require('../utils/logger');
 
+function sanitize(name) {
+  return String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 90);
+}
+
+function getAvailableCreatorsChatCategory(guild) {
+  const categoryIds = [
+    process.env.CREATORS_CHAT_CATEGORY_ID,
+    process.env.CREATORS_CHAT_CATEGORY_ID_2,
+    process.env.CREATORS_CHAT_CATEGORY_ID_3,
+  ].filter(Boolean);
+
+  if (categoryIds.length === 0) {
+    guild.channels.cache
+      .filter(c => c.type === ChannelType.GuildCategory && c.name.startsWith('creators-chat'))
+      .forEach(c => categoryIds.push(c.id));
+  }
+
+  for (const catId of categoryIds) {
+    const category = guild.channels.cache.get(catId);
+    if (!category) continue;
+    const childCount = guild.channels.cache.filter(ch => ch.parentId === catId).size;
+    if (childCount < 50) {
+      return catId;
+    }
+  }
+
+  return categoryIds[0] || process.env.CREATOR_CATEGORY_ID;
+}
+
 module.exports = async (interaction) => {
   await interaction.deferReply({ flags: 64 });
 
@@ -22,32 +55,20 @@ module.exports = async (interaction) => {
     return interaction.editReply({ content: '❌ User not found in this server.' });
   }
 
-  // Give them the Creator role so they can see the category
   const creatorRole = interaction.guild.roles.cache.get(process.env.CREATOR_ROLE_ID);
   if (creatorRole && !targetMember.roles.cache.has(creatorRole.id)) {
     await targetMember.roles.add(creatorRole).catch(console.error);
   }
 
-  // Sanitized username for channel name
-  const safeUsername = targetUser.username
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .substring(0, 90);
-
-  // Resolve the "creators-chat" category
-  const creatorsChatCategory =
-    interaction.guild.channels.cache.get(process.env.CREATORS_CHAT_CATEGORY_ID) ||
-    interaction.guild.channels.cache.find(
-      c => c.type === ChannelType.GuildCategory && c.name === 'creators-chat'
-    );
+  const safeUsername = sanitize(targetUser.username);
+  const targetCategoryId = getAvailableCreatorsChatCategory(interaction.guild);
 
   let creatorChannel;
   try {
     creatorChannel = await interaction.guild.channels.create({
       name: `hc-${safeUsername}`,
       type: ChannelType.GuildText,
-      parent: creatorsChatCategory ? creatorsChatCategory.id : process.env.CREATOR_CATEGORY_ID,
+      parent: targetCategoryId,
       permissionOverwrites: [
         { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
@@ -80,7 +101,6 @@ module.exports = async (interaction) => {
     return interaction.editReply({ content: `❌ Failed to create channel: ${err.message}` });
   }
 
-  // Send the welcome message (wrapped so a failure here is visible, not silent)
   let messageSent = false;
   try {
     await creatorChannel.send(
