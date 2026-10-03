@@ -126,6 +126,9 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.commandName === 'setup-channel') {
         return require('./commands/setup-channel')(interaction);
       }
+      if (interaction.commandName === 'resend-welcome') {
+        return require('./commands/resend-welcome')(interaction);
+      }
       if (interaction.commandName === 'apply') return applyCommand(interaction);
       if (interaction.commandName === 'activate') return activateCommand(interaction);
       if (interaction.commandName === 'setup-channels') return setupChannelsCommand(interaction);
@@ -333,19 +336,6 @@ client.on('guildMemberAdd', async (member) => {
     );
     if (!welcomeChannel) return;
 
-    let joinedUser = member.user;
-
-    try {
-      joinedUser = await member.user.fetch(true);
-    } catch {}
-
-    const welcomeName =
-      member.nickname ||
-      joinedUser?.globalName ||
-      joinedUser?.username ||
-      joinedUser?.tag ||
-      'new creator';
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('start_apply')
@@ -358,12 +348,11 @@ client.on('guildMemberAdd', async (member) => {
     );
 
     await welcomeChannel.send({
-      content: `<@${member.id}>`, // This triggers the actual Discord ping/notification
       embeds: [
         {
           color: 0x5865f2,
           description: [
-            `## 👋 Welcome, **@${welcomeName}**!`,
+            `## 👋 Welcome, <@${member.id}>!`,
             ``,
             `You've just joined **HyperChat** — a platform built for creators.`,
             ``,
@@ -385,7 +374,7 @@ client.on('guildMemberAdd', async (member) => {
     await log(
       client,
       'Member Joined',
-      `${welcomeName} (${member.id}) joined the server.`,
+      `<@${member.id}> joined the server.`,
       0x57f287
     );
   } catch (err) {
