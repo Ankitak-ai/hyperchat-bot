@@ -336,6 +336,19 @@ client.on('guildMemberAdd', async (member) => {
     );
     if (!welcomeChannel) return;
 
+    // Resolve a clean display name for the embed text (never a raw ID)
+    let joinedUser = member.user;
+    try {
+      joinedUser = await member.user.fetch(true);
+    } catch {}
+
+    const welcomeName =
+      member.nickname ||
+      joinedUser?.globalName ||
+      joinedUser?.username ||
+      joinedUser?.tag ||
+      'new creator';
+
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('start_apply')
@@ -348,11 +361,12 @@ client.on('guildMemberAdd', async (member) => {
     );
 
     await welcomeChannel.send({
+      content: `<@${member.id}>`, // Real ping, rendered above the embed — always shows the name
       embeds: [
         {
           color: 0x5865f2,
           description: [
-            `## 👋 Welcome, <@${member.id}>!`,
+            `## 👋 Welcome, @${welcomeName}!`, // Plain text name inside the embed — never a raw ID
             ``,
             `You've just joined **HyperChat** — a platform built for creators.`,
             ``,
@@ -374,7 +388,7 @@ client.on('guildMemberAdd', async (member) => {
     await log(
       client,
       'Member Joined',
-      `<@${member.id}> joined the server.`,
+      `${welcomeName} (${member.id}) joined the server.`,
       0x57f287
     );
   } catch (err) {
